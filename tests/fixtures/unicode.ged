@@ -1,0 +1,21 @@
+0 HEAD
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Séamus /Mac Cárthaigh/
+1 SEX M
+1 BIRT
+2 DATE 1870
+2 PLAC Corcaigh, Éire
+0 @I2@ INDI
+1 NAME Máire /Ó'Brien/
+1 SEX F
+1 BIRT
+2 DATE 1875
+0 @F1@ FAM
+1 HUSB @I1@
+1 WIFE @I2@
+1 MARR
+2 DATE 1895
+0 TRLR
