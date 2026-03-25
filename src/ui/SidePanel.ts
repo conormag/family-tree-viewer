@@ -155,16 +155,16 @@ export class SidePanel {
             </select>
           </div>
           <div class="ftv-form__row">
-            <label class="ftv-form__label" for="ftv-bdate">Birth Date (GEDCOM format)</label>
-            <input class="ftv-form__input" id="ftv-bdate" name="birthDate" type="text" value="${escAttr(ind.birth?.date ?? '')}">
+            <label class="ftv-form__label" for="ftv-bdate">Birth date</label>
+            <input class="ftv-form__input" id="ftv-bdate" name="birthDate" type="text" placeholder="e.g. 1 JAN 1850 or ABT 1850" value="${escAttr(ind.birth?.date ?? '')}">
           </div>
           <div class="ftv-form__row">
-            <label class="ftv-form__label" for="ftv-bplace">Birth Place</label>
+            <label class="ftv-form__label" for="ftv-bplace">Birth place</label>
             <input class="ftv-form__input" id="ftv-bplace" name="birthPlace" type="text" value="${escAttr(ind.birth?.place ?? '')}">
           </div>
           <div class="ftv-form__row">
-            <label class="ftv-form__label" for="ftv-ddate">Death Date (GEDCOM format)</label>
-            <input class="ftv-form__input" id="ftv-ddate" name="deathDate" type="text" value="${escAttr(ind.death?.date ?? '')}">
+            <label class="ftv-form__label" for="ftv-ddate">Death date</label>
+            <input class="ftv-form__input" id="ftv-ddate" name="deathDate" type="text" placeholder="e.g. 15 MAR 1920 or BEF 1930" value="${escAttr(ind.death?.date ?? '')}">
           </div>
           <div class="ftv-form__row">
             <label class="ftv-form__label" for="ftv-dplace">Death Place</label>

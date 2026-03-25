@@ -88,13 +88,49 @@ export class SVGRenderer {
 
     const g = document.createElementNS(NS, 'g') as SVGGElement;
     g.setAttribute('class', `ftv-expand-btn${btn.expanded ? ' ftv-expand-btn--expanded' : ''}`);
+
+    // Always draw a vertical stub from the couple-connector level down to the
+    // top of this button, so there is a visible connection even when collapsed.
+    const btnY = btn.parentBottomY + BTN_MARGIN_TOP;
+
+    // For single-parent families, also draw the horizontal arm from the card edge to btn.x
+    if (btn.armFromX !== undefined) {
+      const arm = document.createElementNS(NS, 'line') as SVGLineElement;
+      arm.setAttribute('x1', String(Math.round(btn.armFromX)));
+      arm.setAttribute('y1', String(Math.round(btn.parentMidY)));
+      arm.setAttribute('x2', String(Math.round(btn.x)));
+      arm.setAttribute('y2', String(Math.round(btn.parentMidY)));
+      arm.setAttribute('stroke', '#94a3b8');
+      arm.setAttribute('stroke-width', '2');
+      arm.setAttribute('pointer-events', 'none');
+      g.appendChild(arm);
+    }
+
+    const stub = document.createElementNS(NS, 'line') as SVGLineElement;
+    stub.setAttribute('x1', String(Math.round(btn.x)));
+    stub.setAttribute('y1', String(Math.round(btn.parentMidY)));
+    stub.setAttribute('x2', String(Math.round(btn.x)));
+    stub.setAttribute('y2', String(Math.round(btnY)));
+    stub.setAttribute('stroke', '#94a3b8');
+    stub.setAttribute('stroke-width', '2');
+    stub.setAttribute('pointer-events', 'none');
+    g.appendChild(stub);
+
+    // Junction dot at the couple-connector level (mirrors the dot EdgePainter draws when expanded)
+    const dot = document.createElementNS(NS, 'circle') as SVGCircleElement;
+    dot.setAttribute('cx', String(Math.round(btn.x)));
+    dot.setAttribute('cy', String(Math.round(btn.parentMidY)));
+    dot.setAttribute('r', '4');
+    dot.setAttribute('fill', '#94a3b8');
+    dot.setAttribute('pointer-events', 'none');
+    g.appendChild(dot);
+
     g.setAttribute('data-fam-id', btn.famId);
     g.style.cursor = 'pointer';
 
     // Measure text to size the pill; approximate 7px per char
     const textW = Math.max(BTN_MIN_W, label.length * 7 + 20);
     const btnX = btn.x - textW / 2;
-    const btnY = btn.parentBottomY + BTN_MARGIN_TOP;
 
     // Pill background
     const rect = document.createElementNS(NS, 'rect') as SVGRectElement;

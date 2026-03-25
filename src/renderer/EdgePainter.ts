@@ -2,6 +2,9 @@ import type { LayoutNode, LayoutEdge } from '../layout/types.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
+const STAGGER = 14;    // px between overlapping bus lines
+const DOT_R   = 4;     // radius of junction dots
+
 function svgLine(x1: number, y1: number, x2: number, y2: number): SVGLineElement {
   const line = document.createElementNS(NS, 'line');
   line.setAttribute('x1', String(Math.round(x1)));
@@ -13,6 +16,27 @@ function svgLine(x1: number, y1: number, x2: number, y2: number): SVGLineElement
   return line;
 }
 
+function svgDot(cx: number, cy: number): SVGCircleElement {
+  const c = document.createElementNS(NS, 'circle');
+  c.setAttribute('cx', String(Math.round(cx)));
+  c.setAttribute('cy', String(Math.round(cy)));
+  c.setAttribute('r', String(DOT_R));
+  c.setAttribute('fill', '#94a3b8');
+  return c;
+}
+
+interface BusData {
+  familyId: string;
+  dropX: number;
+  parentMidY: number;
+  childNodes: LayoutNode[];
+  busLeft: number;
+  busRight: number;
+  ym: number;
+  /** For single-parent families: x of the card edge where the arm starts */
+  armFromX?: number;
+}
+
 export function paintEdges(
   edges: LayoutEdge[],
   nodes: Map<string, LayoutNode>,
@@ -20,82 +44,108 @@ export function paintEdges(
   coupleLayer: SVGGElement,
   coupleMidX: Map<string, number>,
 ): void {
-  // Group parent-child edges by familyId to draw shared horizontal bus lines
-  const familyChildEdges = new Map<string, { childIds: string[] }>();
-
+  // Which families have a real couple connector (both parents visible)?
+  const coupledFamilies = new Set<string>();
   for (const edge of edges) {
-    if (edge.type === 'couple') {
-      const fromNode = nodes.get(edge.fromId);
-      const toNode = nodes.get(edge.toId);
-      if (!fromNode || !toNode) continue;
+    if (edge.type === 'couple' && edge.familyId) coupledFamilies.add(edge.familyId);
+  }
 
-      // Draw between whichever node is on the left and the one on the right
-      const leftNode = fromNode.x < toNode.x ? fromNode : toNode;
-      const rightNode = fromNode.x < toNode.x ? toNode : fromNode;
-      const y = leftNode.y + leftNode.height / 2;
-      const line = svgLine(leftNode.x + leftNode.width, y, rightNode.x, y);
-      line.setAttribute('class', 'ftv-edge ftv-edge--couple');
-      coupleLayer.appendChild(line);
-    } else if (edge.type === 'parent-child' && edge.familyId) {
-      const existing = familyChildEdges.get(edge.familyId);
-      if (existing) {
-        existing.childIds.push(edge.toId);
-      } else {
-        familyChildEdges.set(edge.familyId, { childIds: [edge.toId] });
+  // Draw couple connectors
+  for (const edge of edges) {
+    if (edge.type !== 'couple') continue;
+    const fromNode = nodes.get(edge.fromId);
+    const toNode   = nodes.get(edge.toId);
+    if (!fromNode || !toNode) continue;
+
+    const left  = fromNode.x < toNode.x ? fromNode : toNode;
+    const right = fromNode.x < toNode.x ? toNode   : fromNode;
+    const y = left.y + left.height / 2;
+    const line = svgLine(left.x + left.width, y, right.x, y);
+    line.setAttribute('class', 'ftv-edge ftv-edge--couple');
+    coupleLayer.appendChild(line);
+  }
+
+  // Group parent-child edges by family
+  const familyChildEdges = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (edge.type !== 'parent-child' || !edge.familyId) continue;
+    if (!familyChildEdges.has(edge.familyId)) familyChildEdges.set(edge.familyId, []);
+    familyChildEdges.get(edge.familyId)!.push(edge.toId);
+  }
+
+  // Build BusData for every family with visible children
+  const busList: BusData[] = [];
+
+  for (const [familyId, childIds] of familyChildEdges) {
+    const childNodes = childIds
+      .map(id => nodes.get(id))
+      .filter((n): n is LayoutNode => n !== undefined);
+    if (childNodes.length === 0) continue;
+
+    const dropX = coupleMidX.get(familyId);
+    if (dropX === undefined) continue;
+
+    const parentEdge = edges.find(e => e.type === 'parent-child' && e.familyId === familyId);
+    const parentNode = parentEdge ? nodes.get(parentEdge.fromId) : undefined;
+    if (!parentNode) continue;
+
+    const parentMidY    = parentNode.y + parentNode.height / 2;
+    const firstChildTop = Math.min(...childNodes.map(n => n.y));
+    const rawYm         = (parentNode.y + parentNode.height + firstChildTop) / 2;
+
+    const childCenters = childNodes.map(n => n.x + n.width / 2);
+    const busLeft  = Math.min(...childCenters, dropX);
+    const busRight = Math.max(...childCenters, dropX);
+
+    // For single-parent families, compute where the horizontal arm starts
+    let armFromX: number | undefined;
+    if (!coupledFamilies.has(familyId)) {
+      // arm runs from the near card edge to dropX at parentMidY
+      armFromX = (parentNode.x + parentNode.width / 2 < dropX)
+        ? parentNode.x + parentNode.width   // husband — arm goes rightward
+        : parentNode.x;                     // wife    — arm goes leftward
+    }
+
+    busList.push({ familyId, dropX, parentMidY, childNodes, busLeft, busRight, ym: rawYm, armFromX });
+  }
+
+  // Stagger overlapping bus lines
+  busList.sort((a, b) => a.busLeft - b.busLeft);
+  for (let i = 0; i < busList.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const xOverlap = Math.min(busList[i].busRight, busList[j].busRight)
+                     - Math.max(busList[i].busLeft,  busList[j].busLeft);
+      if (xOverlap > 4 && Math.abs(busList[i].ym - busList[j].ym) < STAGGER / 2) {
+        busList[i].ym = busList[j].ym + STAGGER;
       }
     }
   }
 
-  // Draw parent-child edges with a shared horizontal bus per family
-  for (const [familyId, { childIds }] of familyChildEdges) {
-    const childNodes = childIds
-      .map(id => nodes.get(id))
-      .filter((n): n is LayoutNode => n !== undefined);
+  // Draw all buses
+  for (const bus of busList) {
+    const { dropX, parentMidY, childNodes, busLeft, busRight, ym, armFromX } = bus;
 
-    if (childNodes.length === 0) continue;
+    // Horizontal arm for single-parent families (runs from card edge to dropX)
+    if (armFromX !== undefined) {
+      edgeLayer.appendChild(svgLine(armFromX, parentMidY, dropX, parentMidY));
+    }
 
-    // Use the couple midpoint as the drop origin (not just one parent's center)
-    const dropX = coupleMidX.get(familyId);
-    if (dropX === undefined) continue;
+    // Junction dot where the couple/arm line meets the vertical drop
+    edgeLayer.appendChild(svgDot(dropX, parentMidY));
 
-    // Find a parent node to get the y coordinate for the top of the stub
-    const childCenters = childNodes.map(n => n.x + n.width / 2);
-    const firstChildTop = Math.min(...childNodes.map(n => n.y));
-
-    // Get parent bottom y — use the node whose center is closest to dropX
-    // We need a parent y; look up any node at the right generation
-    const parentY = firstChildTop - 120; // vGap default; approximate if node not found
-    // Try to get it properly from the edge's fromId
-    const parentEdge = edges.find(e => e.type === 'parent-child' && e.familyId === familyId);
-    const parentNode = parentEdge ? nodes.get(parentEdge.fromId) : undefined;
-    const parentBottom = parentNode ? parentNode.y + parentNode.height : parentY;
-
-    const ym = (parentBottom + firstChildTop) / 2;
-
-    // Vertical stub from parent couple midpoint down to ym
-    edgeLayer.appendChild(svgLine(dropX, parentBottom, dropX, ym));
+    // Vertical drop from couple-connector level down to bus Y
+    edgeLayer.appendChild(svgLine(dropX, parentMidY, dropX, ym));
 
     if (childNodes.length === 1) {
-      const childCenterX = childNodes[0].x + childNodes[0].width / 2;
+      const cx       = childNodes[0].x + childNodes[0].width / 2;
       const childTop = childNodes[0].y;
-      // Elbow: horizontal from dropX to child center, then down to child
-      edgeLayer.appendChild(svgLine(dropX, ym, childCenterX, ym));
-      edgeLayer.appendChild(svgLine(childCenterX, ym, childCenterX, childTop));
+      edgeLayer.appendChild(svgLine(dropX, ym, cx, ym));
+      edgeLayer.appendChild(svgLine(cx, ym, cx, childTop));
     } else {
-      const busLeft = Math.min(...childCenters);
-      const busRight = Math.max(...childCenters);
-
-      // Horizontal bus line across all child centers
+      // Horizontal bus across all child centers
       edgeLayer.appendChild(svgLine(busLeft, ym, busRight, ym));
 
-      // Vertical stub from dropX to bus (if not already covered by the bus extent)
-      if (dropX < busLeft) {
-        edgeLayer.appendChild(svgLine(dropX, ym, busLeft, ym));
-      } else if (dropX > busRight) {
-        edgeLayer.appendChild(svgLine(busRight, ym, dropX, ym));
-      }
-
-      // Vertical stub from bus down to each child
+      // Vertical stem to each child
       for (const child of childNodes) {
         const cx = child.x + child.width / 2;
         edgeLayer.appendChild(svgLine(cx, ym, cx, child.y));

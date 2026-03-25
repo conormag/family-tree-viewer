@@ -1,7 +1,7 @@
 import { parseGedcom } from './gedcom/parser.js';
 import { serializeGedcom } from './gedcom/serializer.js';
 import { buildTree, Tree } from './model/Tree.js';
-import { computeLayout, getVisibleSet } from './layout/engine.js';
+import { computeLayout } from './layout/engine.js';
 import { SVGRenderer } from './renderer/SVGRenderer.js';
 import { PanZoom } from './interaction/PanZoom.js';
 import { EventBus } from './interaction/EventBus.js';
@@ -171,20 +171,32 @@ export class FamilyTreeViewer {
   }
 
   private _collapseFamily(famId: string): void {
-    this.expandedFamilies.delete(famId);
+    // Walk the family tree structure downward from famId, collecting every
+    // descendant family (via children → their spouse-families → grandchildren …).
+    // We use structure, not visibility, so that children who happen to be spouses
+    // of independently-visible people (root ancestors) are also collapsed correctly.
+    const toCollapse = new Set<string>([famId]);
+    const queue = [famId];
 
-    // Recompute visible set without this family and remove any expanded families
-    // whose members are no longer visible
-    const nowVisible = getVisibleSet(this.tree, this.expandedFamilies);
-    for (const expandedFamId of Array.from(this.expandedFamilies)) {
-      const fam = this.tree.getFamily(expandedFamId);
-      if (!fam) { this.expandedFamilies.delete(expandedFamId); continue; }
-      // If neither parent is visible, this family should be removed too
-      const hVisible = fam.husbandId ? nowVisible.has(fam.husbandId) : false;
-      const wVisible = fam.wifeId ? nowVisible.has(fam.wifeId) : false;
-      if (!hVisible && !wVisible) {
-        this.expandedFamilies.delete(expandedFamId);
+    while (queue.length > 0) {
+      const fid = queue.shift()!;
+      const fam = this.tree.getFamily(fid);
+      if (!fam) continue;
+
+      for (const childId of fam.childIds) {
+        const child = this.tree.getIndividual(childId);
+        if (!child) continue;
+        for (const spouseFamId of child.familiesAsSpouse) {
+          if (!toCollapse.has(spouseFamId)) {
+            toCollapse.add(spouseFamId);
+            queue.push(spouseFamId);
+          }
+        }
       }
+    }
+
+    for (const fid of toCollapse) {
+      this.expandedFamilies.delete(fid);
     }
   }
 

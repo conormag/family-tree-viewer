@@ -27,10 +27,32 @@ export function getVisibleSet(tree: Tree, expandedFamilies: Set<string>): Set<st
   const visibleIds = new Set<string>();
   const queue: string[] = [];
 
-  // Seed: root ancestors (individuals with no known parent family in this tree)
+  // Seed root ancestors, but only those who are in a "root family" — a family
+  // where the other parent is also a root ancestor (or there is no other parent).
+  // Root ancestors who are only married to descendants (e.g. a spouse brought in
+  // from outside the known lineage) are NOT seeded directly; they become visible
+  // via the BFS spouse-add when their non-root partner is reached. This ensures
+  // that collapsing a family hides those in-married spouses correctly.
   for (const ind of tree.getAllIndividuals()) {
     const isRootAncestor = !ind.familyAsChild || !tree.getFamily(ind.familyAsChild);
-    if (isRootAncestor) queue.push(ind.id);
+    if (!isRootAncestor) continue;
+
+    // Standalone person with no families — always show.
+    if (ind.familiesAsSpouse.length === 0) { queue.push(ind.id); continue; }
+
+    // Seed if at least one family qualifies as a root family: the other parent
+    // is also a root ancestor (or absent, i.e. single-parent family).
+    let inRootFamily = false;
+    for (const famId of ind.familiesAsSpouse) {
+      const fam = tree.getFamily(famId);
+      if (!fam) continue;
+      const otherId = fam.husbandId === ind.id ? fam.wifeId : fam.husbandId;
+      if (!otherId) { inRootFamily = true; break; }                    // single-parent family
+      const other = tree.getIndividual(otherId);
+      const otherIsRoot = !other?.familyAsChild || !tree.getFamily(other.familyAsChild);
+      if (otherIsRoot) { inRootFamily = true; break; }
+    }
+    if (inRootFamily) queue.push(ind.id);
   }
 
   const visited = new Set<string>();
@@ -50,7 +72,19 @@ export function getVisibleSet(tree: Tree, expandedFamilies: Set<string>): Set<st
       if (!fam) continue;
 
       const spouseId = fam.husbandId === id ? fam.wifeId : fam.husbandId;
-      if (spouseId && !visited.has(spouseId)) queue.push(spouseId);
+      if (spouseId && !visited.has(spouseId)) {
+        // Don't show a spouse who is a child of a collapsed (or unknown) family —
+        // collapsing their parent family should hide them even as a partner.
+        const spouseInd = tree.getIndividual(spouseId);
+        const spouseParentFam = spouseInd?.familyAsChild
+          ? tree.getFamily(spouseInd.familyAsChild)
+          : null;
+        const spouseParentCollapsed =
+          spouseParentFam !== null &&
+          spouseParentFam !== undefined &&
+          !expandedFamilies.has(spouseParentFam.id);
+        if (!spouseParentCollapsed) queue.push(spouseId);
+      }
 
       // If this family is expanded, show children
       if (expandedFamilies.has(famId)) {
@@ -101,48 +135,59 @@ function detectComponents(tree: Tree, indIds: string[]): Map<string, string> {
 }
 
 // ---------------------------------------------------------------------------
-// Layout a single connected component
-// Returns {genMap, xMap} with x starting from 0 and no normalization applied yet.
+// Layout a single connected component — bottom-up Reingold-Tilford style.
+//
+// Key insight: compute each family's subtree width recursively (bottom-up),
+// then assign X positions top-down by centering each couple over their
+// allocated children block. This guarantees no sibling-group interleaving
+// and no crossing parent-child lines.
 // ---------------------------------------------------------------------------
 function layoutComponent(
   indIds: string[],
   families: Family[],
   tree: Tree,
+  expandedFamilies: Set<string> | undefined,
   nodeWidth: number,
   hGap: number,
   coupleGap: number,
 ): { genMap: Map<string, number>; xMap: Map<string, number> } {
   const indSet = new Set(indIds);
   const individuals = indIds.map(id => tree.getIndividual(id)!).filter(Boolean);
+  const famById = new Map(families.map(f => [f.id, f]));
+  const famIds = new Set(families.map(f => f.id));
 
-  // --- Generation assignment (BFS, parent→child only) ---
+  // ── Phase 1: Generation assignment ───────────────────────────────────────
+  // BFS parent→child (no spouse crossing), then iteratively align spouses and
+  // re-propagate children until stable.
   const genMap = new Map<string, number>();
 
-  const rootAncestors = individuals.filter(ind => !ind.familyAsChild || !tree.getFamily(ind.familyAsChild));
+  const rootAncestors = individuals.filter(
+    ind => !ind.familyAsChild || !tree.getFamily(ind.familyAsChild),
+  );
   if (rootAncestors.length === 0 && individuals.length > 0) {
     rootAncestors.push(individuals[0]);
   }
 
-  const queue: Array<{ id: string; gen: number }> = rootAncestors.map(a => ({
+  const genQueue: Array<{ id: string; gen: number }> = rootAncestors.map(a => ({
     id: a.id,
     gen: 0,
   }));
 
-  while (queue.length > 0) {
-    const { id, gen } = queue.shift()!;
+  while (genQueue.length > 0) {
+    const { id, gen } = genQueue.shift()!;
     const existing = genMap.get(id);
     if (existing !== undefined) {
       if (gen < existing) {
         genMap.set(id, gen);
         for (const child of tree.getChildren(id)) {
-          if (indSet.has(child.id)) queue.push({ id: child.id, gen: gen + 1 });
+          if (indSet.has(child.id)) genQueue.push({ id: child.id, gen: gen + 1 });
         }
       }
       continue;
     }
     genMap.set(id, gen);
     for (const child of tree.getChildren(id)) {
-      if (indSet.has(child.id)) queue.push({ id: child.id, gen: gen + 1 });
+      if (indSet.has(child.id)) genQueue.push({ id: child.id, gen: gen + 1 });
     }
   }
 
@@ -150,16 +195,11 @@ function layoutComponent(
     if (!genMap.has(ind.id)) genMap.set(ind.id, 0);
   }
 
-  // --- Iteratively align spouses and re-propagate children until stable ---
-  // We interleave both passes because child re-propagation can push children
-  // to a higher generation, which may leave their spouses (who were aligned
-  // in a prior pass) stranded at a lower generation. Repeating until nothing
-  // changes ensures full convergence.
+  // Iteratively align spouses and re-propagate children until nothing changes
   let outerChanged = true;
   while (outerChanged) {
     outerChanged = false;
 
-    // Spouse alignment: raise the "floating" spouse to match the known one
     let changed = true;
     while (changed) {
       changed = false;
@@ -178,7 +218,6 @@ function layoutComponent(
       }
     }
 
-    // Child re-propagation: ensure children are at least parentGen + 1
     changed = true;
     while (changed) {
       changed = false;
@@ -197,303 +236,152 @@ function layoutComponent(
           if (existing === undefined || existing < expected) {
             genMap.set(childId, expected);
             changed = true;
-            outerChanged = true; // children moved — spouses may need re-alignment
+            outerChanged = true;
           }
         }
       }
     }
   }
 
-  // --- X-position assignment per generation row ---
-  const genGroups = new Map<number, string[]>();
-  for (const [id, gen] of genMap) {
-    if (!genGroups.has(gen)) genGroups.set(gen, []);
-    genGroups.get(gen)!.push(id);
+  // ── Phase 2: Bottom-up subtree width computation ──────────────────────────
+  // coupleWidth: space needed for just the visible couple
+  function coupleW(fam: Family): number {
+    const h = !!(fam.husbandId && indSet.has(fam.husbandId));
+    const w = !!(fam.wifeId && indSet.has(fam.wifeId));
+    return h && w ? 2 * nodeWidth + coupleGap : nodeWidth;
   }
 
-  const sortedGens = Array.from(genGroups.keys()).sort((a, b) => a - b);
+  // slotWidth: width allocated to one child in the children row.
+  // If the child has their own family in this component, it equals that
+  // family's full subtree width; otherwise just nodeWidth for a leaf.
+  const widthCache = new Map<string, number>();
+
+  function slotW(childId: string): number {
+    const child = tree.getIndividual(childId);
+    if (!child) return nodeWidth;
+    for (const fid of child.familiesAsSpouse) {
+      if (famIds.has(fid)) return subtreeW(fid);
+    }
+    return nodeWidth;
+  }
+
+  function subtreeW(famId: string): number {
+    if (widthCache.has(famId)) return widthCache.get(famId)!;
+    const fam = famById.get(famId);
+    if (!fam) { widthCache.set(famId, nodeWidth); return nodeWidth; }
+
+    const cw = coupleW(fam);
+    const expanded = expandedFamilies === undefined || expandedFamilies.has(famId);
+    const children = fam.childIds.filter(id => indSet.has(id));
+
+    if (!expanded || children.length === 0) {
+      widthCache.set(famId, cw); return cw;
+    }
+
+    let childW = 0;
+    for (let i = 0; i < children.length; i++) {
+      if (i > 0) childW += hGap;
+      childW += slotW(children[i]);
+    }
+    const w = Math.max(cw, childW);
+    widthCache.set(famId, w);
+    return w;
+  }
+
+  // Pre-compute all family widths bottom-up
+  for (const fam of families) subtreeW(fam.id);
+
+  // ── Phase 3: Identify root families ──────────────────────────────────────
+  // A family is a root family if none of its visible parents is a child of
+  // another visible family in this component. These are placed top-level;
+  // all other families are placed recursively as children.
+  const rootFamilies = families.filter(fam => {
+    for (const parentId of [fam.husbandId, fam.wifeId]) {
+      if (!parentId || !indSet.has(parentId)) continue;
+      const ind = tree.getIndividual(parentId);
+      if (ind?.familyAsChild && famIds.has(ind.familyAsChild)) return false;
+    }
+    return true;
+  });
+
+  // ── Phase 4: Top-down X placement ────────────────────────────────────────
   const xMap = new Map<string, number>();
+  const placed = new Set<string>();
 
-  for (const gen of sortedGens) {
-    const members = genGroups.get(gen)!;
-    let curX = 0;
-    const processedInGen = new Set<string>();
+  function placeFam(famId: string, leftX: number): void {
+    const fam = famById.get(famId);
+    if (!fam) return;
 
-    for (const memberId of members) {
-      if (processedInGen.has(memberId)) continue;
-      const ind = tree.getIndividual(memberId);
-      if (!ind) continue;
+    const w = subtreeW(famId);
+    const cw = coupleW(fam);
+    const hasH = !!(fam.husbandId && indSet.has(fam.husbandId));
+    const hasW = !!(fam.wifeId && indSet.has(fam.wifeId));
 
-      // Skip if this person's spouse (from any family) was already placed first
-      let isSecondarySpouse = false;
-      for (const famId of ind.familiesAsSpouse) {
-        const fam = tree.getFamily(famId);
-        if (!fam) continue;
-        const spouseId = fam.husbandId === memberId ? fam.wifeId : fam.husbandId;
-        if (spouseId && processedInGen.has(spouseId)) {
-          isSecondarySpouse = true;
-          break;
-        }
+    // Center the couple within the full subtree width
+    const coupleLeft = leftX + (w - cw) / 2;
+
+    if (hasH && !placed.has(fam.husbandId!)) {
+      xMap.set(fam.husbandId!, coupleLeft);
+      placed.add(fam.husbandId!);
+    }
+    if (hasW) {
+      const wx = hasH ? coupleLeft + nodeWidth + coupleGap : coupleLeft;
+      if (!placed.has(fam.wifeId!)) {
+        xMap.set(fam.wifeId!, wx);
+        placed.add(fam.wifeId!);
       }
-      if (isSecondarySpouse) continue;
+    }
 
-      xMap.set(memberId, curX);
-      processedInGen.add(memberId);
-      curX += nodeWidth + coupleGap;
+    const expanded = expandedFamilies === undefined || expandedFamilies.has(famId);
+    const children = fam.childIds.filter(id => indSet.has(id));
+    if (!expanded || children.length === 0) return;
 
-      // Place the first unplaced same-generation spouse immediately after
-      let spousePlaced = false;
-      for (const famId of ind.familiesAsSpouse) {
-        const fam = tree.getFamily(famId);
-        if (!fam) continue;
-        const spouseId = fam.husbandId === memberId ? fam.wifeId : fam.husbandId;
-        if (
-          spouseId &&
-          indSet.has(spouseId) &&
-          !processedInGen.has(spouseId) &&
-          genMap.get(spouseId) === gen
-        ) {
-          xMap.set(spouseId, curX);
-          processedInGen.add(spouseId);
-          spousePlaced = true;
-          curX += nodeWidth + hGap;
-          break; // only one spouse adjacent; additional marriages handled by long connector
-        }
-      }
+    // Compute total children width so we can centre the block under the couple
+    let totalChildW = 0;
+    for (let i = 0; i < children.length; i++) {
+      if (i > 0) totalChildW += hGap;
+      totalChildW += slotW(children[i]);
+    }
 
-      if (!spousePlaced) {
-        curX += hGap - coupleGap;
-      }
+    // Start the children block centred within the subtree (mirrors how the
+    // couple itself is centred). This ensures the child block's midpoint
+    // aligns with the couple's midpoint when coupleW !== totalChildW.
+    let cx = leftX + (w - totalChildW) / 2;
+    for (const childId of children) {
+      const sw = slotW(childId);
+      placeChild(childId, cx, sw);
+      cx += sw + hGap;
     }
   }
 
-  // --- Pass 3: Center direct children under parents ---
-  // IMPORTANT: we only include a child's spouse in the cluster when that spouse
-  // has NO visible parent family of their own. If the spouse IS a direct child of
-  // another family, including them here would cause the two families' centerings to
-  // fight over that shared pair, pushing siblings into each other. Root-ancestor
-  // spouses (no parent family in the tree) are fine to include because nothing else
-  // will move them.
-  for (const fam of families) {
-    if (fam.childIds.length === 0) continue;
-
-    const hX = fam.husbandId ? xMap.get(fam.husbandId) : undefined;
-    const wX = fam.wifeId ? xMap.get(fam.wifeId) : undefined;
-
-    let coupleCenter: number;
-    if (hX !== undefined && wX !== undefined) {
-      coupleCenter = (hX + nodeWidth / 2 + wX + nodeWidth / 2) / 2;
-    } else if (hX !== undefined) {
-      coupleCenter = hX + nodeWidth / 2;
-    } else if (wX !== undefined) {
-      coupleCenter = wX + nodeWidth / 2;
-    } else {
-      continue;
-    }
-
-    const childGen = genMap.get(fam.childIds.find(c => indSet.has(c)) ?? '');
-    const clusterIds = new Set<string>();
-    for (const childId of fam.childIds) {
-      if (!indSet.has(childId)) continue;
-      clusterIds.add(childId);
-      const childInd = tree.getIndividual(childId);
-      if (!childInd) continue;
-      for (const childFamId of childInd.familiesAsSpouse) {
-        const childFam = tree.getFamily(childFamId);
-        if (!childFam) continue;
-        const spouseId =
-          childFam.husbandId === childId ? childFam.wifeId : childFam.husbandId;
-        if (!spouseId || !indSet.has(spouseId) || genMap.get(spouseId) !== childGen) continue;
-
-        // Only include spouse if they have no visible parent family.
-        // Spouses who are direct children of another family are left in place;
-        // they will be moved by their own family's centering pass.
-        const spouseInd = tree.getIndividual(spouseId);
-        const spouseHasParentFam =
-          spouseInd?.familyAsChild !== undefined &&
-          tree.getFamily(spouseInd.familyAsChild) !== undefined;
-
-        if (!spouseHasParentFam) {
-          clusterIds.add(spouseId);
-        }
+  function placeChild(childId: string, leftX: number, sw: number): void {
+    if (placed.has(childId)) return; // already placed (pedigree-collapse guard)
+    const child = tree.getIndividual(childId);
+    if (!child) return;
+    // If this child is a parent in their own family, recurse into that family
+    for (const fid of child.familiesAsSpouse) {
+      if (famIds.has(fid)) {
+        placeFam(fid, leftX);
+        return;
       }
     }
-
-    const clusterXs = Array.from(clusterIds)
-      .map(id => xMap.get(id))
-      .filter((x): x is number => x !== undefined);
-
-    if (clusterXs.length === 0) continue;
-
-    const clusterLeft = Math.min(...clusterXs);
-    const clusterRight = Math.max(...clusterXs) + nodeWidth;
-    const shift = coupleCenter - (clusterLeft + clusterRight) / 2;
-
-    if (Math.abs(shift) > 1) {
-      for (const id of clusterIds) {
-        const x = xMap.get(id);
-        if (x !== undefined) xMap.set(id, x + shift);
-      }
-    }
+    // Leaf node — center within its slot
+    xMap.set(childId, leftX + (sw - nodeWidth) / 2);
+    placed.add(childId);
   }
 
-  // --- Pass 3b: Family-cluster separation ---
-  // After centering, children of one family may overlap children of another because
-  // a large sibling group (e.g., 12 children) extends past the adjacent couple's position.
-  // This pass groups visible children by their parent family and ensures each family's
-  // sibling block is a contiguous region with at least hGap between adjacent blocks.
-  {
-    // Build nodeFamily: which family each node is a child of
-    const nodeFamily = new Map<string, string>();
-    for (const fam of families) {
-      for (const childId of fam.childIds) {
-        if (indSet.has(childId)) nodeFamily.set(childId, fam.id);
-      }
-    }
-
-    for (const [gen, members] of genGroups) {
-      // Collect nodes that have a known parent family, plus their root-ancestor spouses
-      // (spouses with no parent family travel with their sibling cluster, mirroring
-      // the Pass 3 centering logic — prevents them being stranded when the cluster shifts).
-      const familyToMembers = new Map<string, string[]>();
-      for (const id of members) {
-        const famId = nodeFamily.get(id);
-        if (!famId) continue;
-        if (!familyToMembers.has(famId)) familyToMembers.set(famId, []);
-        familyToMembers.get(famId)!.push(id);
-
-        // Also include root-ancestor spouses of each child in the same cluster
-        const childInd = tree.getIndividual(id);
-        if (!childInd) continue;
-        for (const spouseFamId of childInd.familiesAsSpouse) {
-          const spouseFam = tree.getFamily(spouseFamId);
-          if (!spouseFam) continue;
-          const spouseId = spouseFam.husbandId === id ? spouseFam.wifeId : spouseFam.husbandId;
-          if (!spouseId || !indSet.has(spouseId) || genMap.get(spouseId) !== gen) continue;
-          // Only include spouse if they have no visible parent family
-          const spouseInd = tree.getIndividual(spouseId);
-          if (spouseInd?.familyAsChild && tree.getFamily(spouseInd.familyAsChild)) continue;
-          if (!familyToMembers.get(famId)!.includes(spouseId)) {
-            familyToMembers.get(famId)!.push(spouseId);
-          }
-        }
-      }
-      if (familyToMembers.size <= 1) continue;
-
-      // Compute parent couple center for each cluster
-      const clusters: Array<{ ids: string[]; parentCX: number }> = [];
-      for (const [famId, ids] of familyToMembers) {
-        const fam = families.find(f => f.id === famId);
-        if (!fam) continue;
-        const hX = fam.husbandId && indSet.has(fam.husbandId) ? xMap.get(fam.husbandId) : undefined;
-        const wX = fam.wifeId && indSet.has(fam.wifeId) ? xMap.get(fam.wifeId) : undefined;
-        let parentCX: number;
-        if (hX !== undefined && wX !== undefined) parentCX = (hX + nodeWidth / 2 + wX + nodeWidth / 2) / 2;
-        else if (hX !== undefined) parentCX = hX + nodeWidth / 2;
-        else if (wX !== undefined) parentCX = wX + nodeWidth / 2;
-        else parentCX = Math.min(...ids.map(id => xMap.get(id) ?? 0)) + nodeWidth / 2;
-        clusters.push({ ids, parentCX });
-      }
-
-      // Sort clusters by parent position
-      clusters.sort((a, b) => a.parentCX - b.parentCX);
-
-      // Ensure each cluster starts after the previous one ends (with hGap)
-      for (let ci = 0; ci < clusters.length - 1; ci++) {
-        const left = clusters[ci];
-        const right = clusters[ci + 1];
-        const leftRight = Math.max(...left.ids.map(id => (xMap.get(id) ?? 0) + nodeWidth));
-        const rightLeft = Math.min(...right.ids.map(id => xMap.get(id) ?? 0));
-        if (rightLeft < leftRight + hGap) {
-          const push = leftRight + hGap - rightLeft;
-          for (const id of right.ids) xMap.set(id, (xMap.get(id) ?? 0) + push);
-          right.parentCX += push;
-        }
-      }
-    }
+  // Place root families left-to-right
+  let curX = 0;
+  for (const fam of rootFamilies) {
+    placeFam(fam.id, curX);
+    curX += subtreeW(fam.id) + hGap;
   }
 
-  // --- Pass 4: Resolve x-overlaps, treating same-generation couples as units ---
-  // After centering, cross-family married pairs may not be pixel-adjacent (each was
-  // moved by their own family's centering independently). The sweep below pushes
-  // overlapping nodes apart. Couples are treated as atomic units — when a couple is
-  // pushed right, both members move together to keep them adjacent.
-
-  // Build couple-partner map (same generation only)
-  const couplePartnerMap = new Map<string, string>();
-  for (const fam of families) {
-    if (!fam.husbandId || !fam.wifeId) continue;
-    if (!indSet.has(fam.husbandId) || !indSet.has(fam.wifeId)) continue;
-    if (genMap.get(fam.husbandId) !== genMap.get(fam.wifeId)) continue;
-    couplePartnerMap.set(fam.husbandId, fam.wifeId);
-    couplePartnerMap.set(fam.wifeId, fam.husbandId);
-  }
-
-  // Group by generation and sweep
-  const genRowIds = new Map<number, string[]>();
-  for (const [id, gen] of genMap) {
-    if (!genRowIds.has(gen)) genRowIds.set(gen, []);
-    genRowIds.get(gen)!.push(id);
-  }
-
-  for (const [, ids] of genRowIds) {
-    // Sort by x; run multiple times until stable (pushing one node may require
-    // re-checking earlier pairs after a couple is snapped into adjacency).
-    let sweepChanged = true;
-    while (sweepChanged) {
-      sweepChanged = false;
-      ids.sort((a, b) => (xMap.get(a) ?? 0) - (xMap.get(b) ?? 0));
-
-      for (let i = 0; i < ids.length - 1; i++) {
-        const leftId = ids[i];
-        const rightId = ids[i + 1];
-        const leftX = xMap.get(leftId) ?? 0;
-        const rightX = xMap.get(rightId) ?? 0;
-
-        const areCouple = couplePartnerMap.get(leftId) === rightId;
-        const minGap = areCouple ? coupleGap : hGap;
-        const minRightX = leftX + nodeWidth + minGap;
-
-        if (rightX < minRightX) {
-          const push = minRightX - rightX;
-          // Push rightId and all nodes to its right. If rightId has a couple
-          // partner that is also in the row but further right, it will be
-          // encountered by the sweep and kept adjacent naturally. If the partner
-          // is to the LEFT (because centering swapped the expected order), snap
-          // it to the right of leftId so the couple is adjacent.
-          for (let j = i + 1; j < ids.length; j++) {
-            xMap.set(ids[j], (xMap.get(ids[j]) ?? 0) + push);
-          }
-          sweepChanged = true;
-          break; // re-sort and re-sweep after a push
-        }
-      }
-    }
-
-    // Final pass: ensure every couple is exactly coupleGap apart.
-    // After all pushes the couple may still have a gap larger than coupleGap if
-    // the two members were centered under different parents. Snap the right
-    // member to sit immediately beside the left member when they are adjacent
-    // in the sorted order.
-    ids.sort((a, b) => (xMap.get(a) ?? 0) - (xMap.get(b) ?? 0));
-    for (let i = 0; i < ids.length - 1; i++) {
-      const leftId = ids[i];
-      const rightId = ids[i + 1];
-      if (couplePartnerMap.get(leftId) === rightId) {
-        const leftX = xMap.get(leftId) ?? 0;
-        const expectedRightX = leftX + nodeWidth + coupleGap;
-        const actualRightX = xMap.get(rightId) ?? 0;
-        if (actualRightX > expectedRightX + 1) {
-          // Pull the right member closer — but only if the gap between them is
-          // bigger than coupleGap AND there's no other node between them (the
-          // sort means they ARE adjacent in this row).
-          const pull = actualRightX - expectedRightX;
-          // Shift rightId and everything to its right left by pull
-          for (let j = i + 1; j < ids.length; j++) {
-            xMap.set(ids[j], (xMap.get(ids[j]) ?? 0) - pull);
-          }
-        }
-      }
+  // Place any individuals not yet positioned (lone individuals, edge cases)
+  for (const ind of individuals) {
+    if (!xMap.has(ind.id)) {
+      xMap.set(ind.id, curX);
+      curX += nodeWidth + hGap;
     }
   }
 
@@ -526,11 +414,11 @@ export function computeLayout(
   // Determine which individuals are visible
   const visibleSet = expandedFamilies !== undefined
     ? getVisibleSet(tree, expandedFamilies)
-    : new Set(allIndividuals.map(i => i.id)); // no filtering: show all
+    : new Set(allIndividuals.map(i => i.id));
 
   const visibleIndividuals = allIndividuals.filter(i => visibleSet.has(i.id));
 
-  // 1. Detect connected components (among visible individuals only)
+  // 1. Detect disconnected components (among visible individuals only)
   const componentOf = detectComponents(tree, visibleIndividuals.map(i => i.id));
   const componentGroups = new Map<string, string[]>();
   for (const ind of visibleIndividuals) {
@@ -539,7 +427,6 @@ export function computeLayout(
     componentGroups.get(comp)!.push(ind.id);
   }
 
-  // Sort by descending size so the biggest component comes first (top-left)
   const sortedComponents = Array.from(componentGroups.values()).sort(
     (a, b) => b.length - a.length,
   );
@@ -562,12 +449,12 @@ export function computeLayout(
       indIds,
       families,
       tree,
+      expandedFamilies,
       nodeWidth,
       hGap,
       coupleGap,
     );
 
-    // Normalize this component so its minimum x = 0
     const xs = Array.from(xMap.values());
     const minX = xs.length ? Math.min(...xs) : 0;
     const maxX = xs.length ? Math.max(...xs) + nodeWidth : nodeWidth;
@@ -583,15 +470,14 @@ export function computeLayout(
     xOffset += compWidth + componentGap;
   }
 
-  // 3. Create LayoutNodes (visible only)
+  // 3. Create LayoutNodes
   for (const ind of visibleIndividuals) {
     const gen = finalGenMap.get(ind.id) ?? 0;
     const x = finalXMap.get(ind.id) ?? 0;
-    const y = gen * (nodeHeight + vGap);
     nodes.set(ind.id, {
       id: ind.id,
       x,
-      y,
+      y: gen * (nodeHeight + vGap),
       width: nodeWidth,
       height: nodeHeight,
       generation: gen,
@@ -599,77 +485,30 @@ export function computeLayout(
     });
   }
 
-  // 4. Ghost nodes for families with only one known spouse (visible)
-  let ghostCounter = 0;
-  for (const fam of tree.getAllFamilies()) {
-    const hasHusb = fam.husbandId && nodes.has(fam.husbandId);
-    const hasWife = fam.wifeId && nodes.has(fam.wifeId);
-    const hasFamilyVisible =
-      (fam.husbandId && visibleSet.has(fam.husbandId)) ||
-      (fam.wifeId && visibleSet.has(fam.wifeId));
-    if (!hasFamilyVisible) continue;
+  // Ghost nodes are intentionally omitted: with the bottom-up layout, a
+  // single-parent family is allocated nodeWidth, and a ghost would extend
+  // beyond that slot causing overlaps. Unknown spouses are represented in
+  // the GEDCOM data as real (minimal) INDI records and appear as normal cards.
 
-    if (!hasHusb && hasWife && fam.wifeId) {
-      const wifeNode = nodes.get(fam.wifeId);
-      if (wifeNode) {
-        const ghostX = wifeNode.x - nodeWidth - coupleGap;
-        // Skip ghost if another real node is already at this position
-        const conflict = Array.from(nodes.values()).some(
-          n => !n.isGhost && n.generation === wifeNode.generation && Math.abs(n.x - ghostX) < nodeWidth,
-        );
-        if (!conflict) {
-          const ghostId = `@GHOST${ghostCounter++}@`;
-          nodes.set(ghostId, {
-            id: ghostId,
-            x: ghostX,
-            y: wifeNode.y,
-            width: nodeWidth,
-            height: nodeHeight,
-            generation: wifeNode.generation,
-            isGhost: true,
-            ghostFamilyId: fam.id,
-          });
-        }
-      }
-    } else if (hasHusb && !hasWife && fam.husbandId) {
-      const husbNode = nodes.get(fam.husbandId);
-      if (husbNode) {
-        const ghostX = husbNode.x + nodeWidth + coupleGap;
-        // Skip ghost if another real node is already at this position
-        const conflict = Array.from(nodes.values()).some(
-          n => !n.isGhost && n.generation === husbNode.generation && Math.abs(n.x - ghostX) < nodeWidth,
-        );
-        if (!conflict) {
-          const ghostId = `@GHOST${ghostCounter++}@`;
-          nodes.set(ghostId, {
-            id: ghostId,
-            x: ghostX,
-            y: husbNode.y,
-            width: nodeWidth,
-            height: nodeHeight,
-            generation: husbNode.generation,
-            isGhost: true,
-            ghostFamilyId: fam.id,
-          });
-        }
-      }
-    }
-  }
-
-  // 5. Compute couple midpoints (used by EdgePainter for correct bus line origin)
+  // 5. Couple midpoints (for EdgePainter bus-line origins)
+  // For couples: midpoint between the two cards (sits in the gap between them).
+  // For single-parent: just past the relevant card edge, mirroring where the
+  // midpoint would be if there were a partner — this keeps the bus line off the card.
   for (const fam of tree.getAllFamilies()) {
     const hNode = fam.husbandId ? nodes.get(fam.husbandId) : undefined;
     const wNode = fam.wifeId ? nodes.get(fam.wifeId) : undefined;
     if (hNode && wNode) {
       coupleMidX.set(fam.id, (hNode.x + hNode.width / 2 + wNode.x + wNode.width / 2) / 2);
     } else if (hNode) {
-      coupleMidX.set(fam.id, hNode.x + hNode.width / 2);
+      // Arm extends to the right of the husband card
+      coupleMidX.set(fam.id, hNode.x + hNode.width + coupleGap / 2);
     } else if (wNode) {
-      coupleMidX.set(fam.id, wNode.x + wNode.width / 2);
+      // Arm extends to the left of the wife card
+      coupleMidX.set(fam.id, wNode.x - coupleGap / 2);
     }
   }
 
-  // 6. Build edges (only for visible nodes)
+  // 6. Edges
   for (const fam of tree.getAllFamilies()) {
     const hId = fam.husbandId;
     const wId = fam.wifeId;
@@ -678,10 +517,10 @@ export function computeLayout(
       edges.push({ type: 'couple', fromId: hId, toId: wId, familyId: fam.id });
     }
 
-    // Only draw parent-child edges when a visible parent exists (avoids dangling lines)
+    const famExpanded = expandedFamilies === undefined || expandedFamilies.has(fam.id);
     const visibleParentId = (hId && nodes.has(hId)) ? hId :
                             (wId && nodes.has(wId)) ? wId : undefined;
-    if (visibleParentId) {
+    if (famExpanded && visibleParentId) {
       for (const childId of fam.childIds) {
         if (nodes.has(childId)) {
           edges.push({ type: 'parent-child', fromId: visibleParentId, toId: childId, familyId: fam.id });
@@ -690,17 +529,15 @@ export function computeLayout(
     }
   }
 
-  // 7. Expand buttons: one per family that has children, where at least one parent is visible
+  // 7. Expand buttons
   const expandButtons: LayoutResult['expandButtons'] = [];
   for (const fam of tree.getAllFamilies()) {
     if (fam.childIds.length === 0) continue;
 
-    // Need at least one visible parent
     const hNode = fam.husbandId ? nodes.get(fam.husbandId) : undefined;
     const wNode = fam.wifeId ? nodes.get(fam.wifeId) : undefined;
     if (!hNode && !wNode) continue;
 
-    // Ghost nodes shouldn't show expand buttons (no real parent)
     const hasRealHusb = hNode && !hNode.isGhost;
     const hasRealWife = wNode && !wNode.isGhost;
     if (!hasRealHusb && !hasRealWife) continue;
@@ -710,14 +547,30 @@ export function computeLayout(
       hNode ? hNode.y + hNode.height : 0,
       wNode ? wNode.y + wNode.height : 0,
     );
+    const parentMid = Math.min(
+      hNode ? hNode.y + hNode.height / 2 : Infinity,
+      wNode ? wNode.y + wNode.height / 2 : Infinity,
+    );
 
     const isExpanded = expandedFamilies !== undefined && expandedFamilies.has(fam.id);
+
+    // For single-parent families, record the card edge where the horizontal arm starts
+    let armFromX: number | undefined;
+    if (!(hNode && wNode)) {
+      if (hNode) {
+        armFromX = hNode.x + hNode.width;  // arm goes rightward
+      } else if (wNode) {
+        armFromX = wNode.x;                // arm goes leftward
+      }
+    }
 
     expandButtons.push({
       famId: fam.id,
       childCount: fam.childIds.length,
       x: midX,
       parentBottomY: parentBottom,
+      parentMidY: parentMid === Infinity ? parentBottom - nodeHeight / 2 : parentMid,
+      armFromX,
       expanded: isExpanded,
     });
   }
@@ -729,10 +582,8 @@ export function computeLayout(
     maxX = Math.max(maxX, node.x + node.width);
     maxY = Math.max(maxY, node.y + node.height);
   }
-
-  // Add extra height for expand buttons below collapsed families
   if (expandButtons.some(b => !b.expanded)) {
-    maxY += 40; // button height clearance
+    maxY += 40;
   }
 
   return { nodes, edges, coupleMidX, expandButtons, totalWidth: maxX, totalHeight: maxY };

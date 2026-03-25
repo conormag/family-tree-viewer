@@ -92,9 +92,10 @@ export const PANEL_STYLES = `
 `;
 
 export const NODE_STYLES = `
-.ftv-node { transition: filter 0.15s; }
-.ftv-node:hover .ftv-node__bg { stroke: #94a3b8; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.08)); }
-.ftv-node--selected .ftv-node__bg { stroke: #3b82f6 !important; stroke-width: 2.5 !important; }
+.ftv-node { transition: filter 0.18s ease; }
+.ftv-node:hover { filter: brightness(1.12) drop-shadow(0 4px 10px rgba(0,0,0,0.30)); }
+.ftv-node--selected { filter: brightness(1.08) drop-shadow(0 0 0 2.5px white) drop-shadow(0 4px 12px rgba(0,0,0,0.40)); }
+.ftv-node--selected .ftv-node__bg { stroke: white !important; stroke-width: 2.5 !important; }
 .ftv-node__name { dominant-baseline: auto; }
 .ftv-node__dates { dominant-baseline: auto; }
 .ftv-expand-btn__bg {
@@ -129,8 +130,6 @@ export const DARK_STYLES = `
   background: #334155; border-color: #475569; color: #f1f5f9;
 }
 .ftv--dark .ftv-form__label { color: #cbd5e1; }
-.ftv--dark .ftv-node__bg { fill: #1e293b !important; }
-.ftv--dark .ftv-node__name { fill: #f1f5f9 !important; }
 .ftv--dark svg { background: #0f172a; }
 `;
 

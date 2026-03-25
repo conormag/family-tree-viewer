@@ -3,17 +3,27 @@ import type { Individual } from '../model/types.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
-const GENDER_COLORS: Record<string, string> = {
-  M: '#3b82f6',
-  F: '#ec4899',
-  U: '#94a3b8',
+// Material-style gender palette — darker shade for header band, lighter for body
+const GENDER_HEADER: Record<string, string> = {
+  M: '#1565C0',
+  F: '#AD1457',
+  U: '#37474F',
 };
 
-// Circle is at cx=(width-26)=154, r=22 → left edge at x=132.
-// Text clip ends at x=124 (8px gap before the circle).
-const TEXT_CLIP_X = 8;        // start (just after gender bar)
-const TEXT_CLIP_RIGHT = 124;  // end (8px gap before circle left edge at 132)
-const TEXT_CLIP_WIDTH = TEXT_CLIP_RIGHT - TEXT_CLIP_X; // 116
+const GENDER_BODY: Record<string, string> = {
+  M: '#1976D2',
+  F: '#C2185B',
+  U: '#455A64',
+};
+
+const AVATAR_RING: Record<string, string> = {
+  M: '#90CAF9',
+  F: '#F48FB1',
+  U: '#90A4AE',
+};
+
+const HEADER_HEIGHT = 56;
+const AVATAR_R = 24;
 
 function svgEl<K extends keyof SVGElementTagNameMap>(tag: K): SVGElementTagNameMap[K] {
   return document.createElementNS(NS, tag);
@@ -37,117 +47,200 @@ export function createNodeCard(
 
   const { width, height } = layoutNode;
 
-  // Clip path keeps name/dates text from bleeding under the avatar circle.
-  // Defined inside this card's <g> so coords are in card-local space.
-  const clipId = `ftv-clip-${sanitizeId(layoutNode.id)}`;
-  const defs = svgEl('defs');
-  const clipPath = svgEl('clipPath');
-  clipPath.id = clipId;
-  const clipRect = svgEl('rect');
-  clipRect.setAttribute('x', String(TEXT_CLIP_X));
-  clipRect.setAttribute('y', '0');
-  clipRect.setAttribute('width', String(TEXT_CLIP_WIDTH));
-  clipRect.setAttribute('height', String(height));
-  clipPath.appendChild(clipRect);
-  defs.appendChild(clipPath);
-  g.appendChild(defs);
-
-  // Background rect
-  const rect = svgEl('rect');
-  rect.setAttribute('class', 'ftv-node__bg');
-  rect.setAttribute('width', String(width));
-  rect.setAttribute('height', String(height));
-  rect.setAttribute('rx', '8');
-  rect.setAttribute('fill', layoutNode.isGhost ? '#f8fafc' : 'white');
-  rect.setAttribute('stroke', layoutNode.isGhost ? '#cbd5e1' : '#e2e8f0');
-  rect.setAttribute('stroke-width', '1.5');
-  if (layoutNode.isGhost) {
-    rect.setAttribute('stroke-dasharray', '6 3');
-  }
-  g.appendChild(rect);
-
+  // Ghost / unknown node
   if (layoutNode.isGhost || !individual) {
+    const rect = svgEl('rect');
+    rect.setAttribute('class', 'ftv-node__bg');
+    rect.setAttribute('width', String(width));
+    rect.setAttribute('height', String(height));
+    rect.setAttribute('rx', '8');
+    rect.setAttribute('fill', '#263238');
+    rect.setAttribute('stroke', '#546E7A');
+    rect.setAttribute('stroke-width', '1.5');
+    rect.setAttribute('stroke-dasharray', '6 3');
+    g.appendChild(rect);
+
     const unknownText = svgEl('text');
     unknownText.setAttribute('x', String(width / 2));
     unknownText.setAttribute('y', String(height / 2 + 5));
     unknownText.setAttribute('text-anchor', 'middle');
     unknownText.setAttribute('font-size', '13');
-    unknownText.setAttribute('fill', '#94a3b8');
+    unknownText.setAttribute('fill', '#78909C');
     unknownText.textContent = 'Unknown';
     g.appendChild(unknownText);
     return g;
   }
 
-  // Gender color bar
-  const genderColor = GENDER_COLORS[individual.sex] ?? GENDER_COLORS['U'];
-  const genderBar = svgEl('rect');
-  genderBar.setAttribute('class', 'ftv-node__gender-bar');
-  genderBar.setAttribute('width', '6');
-  genderBar.setAttribute('height', String(height));
-  genderBar.setAttribute('rx', '4');
-  genderBar.setAttribute('fill', genderColor);
-  g.appendChild(genderBar);
+  const sex = individual.sex ?? 'U';
+  const headerColor = GENDER_HEADER[sex] ?? GENDER_HEADER['U'];
+  const bodyColor = GENDER_BODY[sex] ?? GENDER_BODY['U'];
+  const ringColor = AVATAR_RING[sex] ?? AVATAR_RING['U'];
 
-  // Name — clipped so it can't bleed under the avatar circle
-  const fullName = [individual.givenName, individual.surname].filter(Boolean).join(' ');
+  // Clip path for avatar overlap area — keeps name text from going under the avatar
+  const clipId = `ftv-clip-${sanitizeId(layoutNode.id)}`;
+  const defs = svgEl('defs');
+  const clipPath = svgEl('clipPath');
+  clipPath.id = clipId;
+  const clipRect = svgEl('rect');
+  clipRect.setAttribute('x', '10');
+  clipRect.setAttribute('y', '0');
+  clipRect.setAttribute('width', String(width - AVATAR_R * 2 - 20));
+  clipRect.setAttribute('height', String(height));
+  clipPath.appendChild(clipRect);
+  defs.appendChild(clipPath);
+  g.appendChild(defs);
+
+  // Card shadow filter
+  const filterId = `ftv-shadow-${sanitizeId(layoutNode.id)}`;
+  const filter = svgEl('filter');
+  filter.id = filterId;
+  filter.setAttribute('x', '-10%');
+  filter.setAttribute('y', '-10%');
+  filter.setAttribute('width', '120%');
+  filter.setAttribute('height', '130%');
+  const feDropShadow = document.createElementNS(NS, 'feDropShadow');
+  feDropShadow.setAttribute('dx', '0');
+  feDropShadow.setAttribute('dy', '2');
+  feDropShadow.setAttribute('stdDeviation', '3');
+  feDropShadow.setAttribute('flood-color', 'rgba(0,0,0,0.25)');
+  filter.appendChild(feDropShadow);
+  defs.appendChild(filter);
+
+  // Body background (full card)
+  const bodyRect = svgEl('rect');
+  bodyRect.setAttribute('class', 'ftv-node__bg');
+  bodyRect.setAttribute('width', String(width));
+  bodyRect.setAttribute('height', String(height));
+  bodyRect.setAttribute('rx', '8');
+  bodyRect.setAttribute('fill', bodyColor);
+  bodyRect.setAttribute('filter', `url(#${filterId})`);
+  g.appendChild(bodyRect);
+
+  // Header band (top portion, darker shade)
+  const headerClipId = `ftv-hclip-${sanitizeId(layoutNode.id)}`;
+  const headerClipPath = svgEl('clipPath');
+  headerClipPath.id = headerClipId;
+  const headerClipRect = svgEl('rect');
+  headerClipRect.setAttribute('x', '0');
+  headerClipRect.setAttribute('y', '0');
+  headerClipRect.setAttribute('width', String(width));
+  headerClipRect.setAttribute('height', String(HEADER_HEIGHT));
+  headerClipRect.setAttribute('rx', '8');
+  headerClipPath.appendChild(headerClipRect);
+  defs.appendChild(headerClipPath);
+
+  const headerRect = svgEl('rect');
+  headerRect.setAttribute('x', '0');
+  headerRect.setAttribute('y', '0');
+  headerRect.setAttribute('width', String(width));
+  headerRect.setAttribute('height', String(HEADER_HEIGHT + 4)); // overlap a few px so no gap
+  headerRect.setAttribute('fill', headerColor);
+  headerRect.setAttribute('clip-path', `url(#${headerClipId})`);
+  g.appendChild(headerRect);
+
+  // Avatar circle — sits on the right, straddling the header/body boundary
+  const avatarCX = width - AVATAR_R - 8;
+  const avatarCY = HEADER_HEIGHT;
+
+  // Avatar ring (semi-transparent)
+  const avatarRing = svgEl('circle');
+  avatarRing.setAttribute('cx', String(avatarCX));
+  avatarRing.setAttribute('cy', String(avatarCY));
+  avatarRing.setAttribute('r', String(AVATAR_R + 3));
+  avatarRing.setAttribute('fill', 'none');
+  avatarRing.setAttribute('stroke', ringColor);
+  avatarRing.setAttribute('stroke-width', '2');
+  avatarRing.setAttribute('opacity', '0.6');
+  g.appendChild(avatarRing);
+
+  // Avatar circle fill
+  const avatar = svgEl('circle');
+  avatar.setAttribute('class', 'ftv-node__photo');
+  avatar.setAttribute('cx', String(avatarCX));
+  avatar.setAttribute('cy', String(avatarCY));
+  avatar.setAttribute('r', String(AVATAR_R));
+  avatar.setAttribute('fill', headerColor);
+  avatar.setAttribute('stroke', ringColor);
+  avatar.setAttribute('stroke-width', '2');
+  g.appendChild(avatar);
+
+  // Gender initial in avatar
+  const initial = svgEl('text');
+  initial.setAttribute('x', String(avatarCX));
+  initial.setAttribute('y', String(avatarCY + 6));
+  initial.setAttribute('text-anchor', 'middle');
+  initial.setAttribute('font-size', '16');
+  initial.setAttribute('font-weight', '600');
+  initial.setAttribute('fill', 'white');
+  initial.setAttribute('opacity', '0.85');
+  initial.textContent = sex === 'U' ? '?' : sex;
+  g.appendChild(initial);
+
+  // Name — split across two lines in header band
+  const givenName = individual.givenName || '';
+  const surname = individual.surname || '';
+  const fullName = [givenName, surname].filter(Boolean).join(' ');
   const displayName = fullName || 'Unknown';
 
-  const nameText = svgEl('text');
-  nameText.setAttribute('class', 'ftv-node__name');
-  nameText.setAttribute('x', '18');
-  nameText.setAttribute('y', '32');
-  nameText.setAttribute('font-weight', '700');
-  nameText.setAttribute('font-size', '14');
-  nameText.setAttribute('fill', '#1e293b');
-  nameText.setAttribute('clip-path', `url(#${clipId})`);
-  nameText.textContent = displayName;
-
-  // Tooltip shows full name when text is clipped
+  // Line 1: given name (bold)
+  const givenText = svgEl('text');
+  givenText.setAttribute('class', 'ftv-node__name');
+  givenText.setAttribute('x', '10');
+  givenText.setAttribute('y', '22');
+  givenText.setAttribute('font-weight', '700');
+  givenText.setAttribute('font-size', '13');
+  givenText.setAttribute('fill', 'white');
+  givenText.setAttribute('clip-path', `url(#${clipId})`);
+  givenText.textContent = givenName || displayName;
   const title = svgEl('title');
   title.textContent = displayName;
-  nameText.appendChild(title);
+  givenText.appendChild(title);
+  g.appendChild(givenText);
 
-  g.appendChild(nameText);
+  // Line 2: surname (lighter weight, slightly less opaque)
+  if (surname) {
+    const surnameText = svgEl('text');
+    surnameText.setAttribute('x', '10');
+    surnameText.setAttribute('y', '39');
+    surnameText.setAttribute('font-weight', '500');
+    surnameText.setAttribute('font-size', '12');
+    surnameText.setAttribute('fill', 'rgba(255,255,255,0.85)');
+    surnameText.setAttribute('clip-path', `url(#${clipId})`);
+    surnameText.textContent = surname;
+    g.appendChild(surnameText);
+  }
 
-  // Dates — also clipped for the same reason
+  // Dates — in body area, below header
   const birthYear = individual.birth?.year;
   const deathYear = individual.death?.year;
   let datesStr = '';
-  if (birthYear) datesStr += `b.${birthYear}`;
-  if (deathYear) datesStr += (datesStr ? ' · ' : '') + `d.${deathYear}`;
+  if (birthYear) datesStr += `b. ${birthYear}`;
+  if (deathYear) datesStr += (datesStr ? ' · ' : '') + `d. ${deathYear}`;
 
   if (datesStr) {
     const datesText = svgEl('text');
     datesText.setAttribute('class', 'ftv-node__dates');
-    datesText.setAttribute('x', '18');
-    datesText.setAttribute('y', '52');
-    datesText.setAttribute('font-size', '12');
-    datesText.setAttribute('fill', '#64748b');
+    datesText.setAttribute('x', '10');
+    datesText.setAttribute('y', String(HEADER_HEIGHT + 20));
+    datesText.setAttribute('font-size', '11');
+    datesText.setAttribute('fill', 'rgba(255,255,255,0.80)');
     datesText.setAttribute('clip-path', `url(#${clipId})`);
     datesText.textContent = datesStr;
     g.appendChild(datesText);
   }
 
-  // Avatar circle
-  const photo = svgEl('circle');
-  photo.setAttribute('class', 'ftv-node__photo');
-  photo.setAttribute('cx', String(width - 26));
-  photo.setAttribute('cy', String(height / 2));
-  photo.setAttribute('r', '22');
-  photo.setAttribute('fill', '#f1f5f9');
-  photo.setAttribute('stroke', '#cbd5e1');
-  photo.setAttribute('stroke-width', '1');
-  g.appendChild(photo);
-
-  // Gender initial in circle
-  const initial = svgEl('text');
-  initial.setAttribute('x', String(width - 26));
-  initial.setAttribute('y', String(height / 2 + 5));
-  initial.setAttribute('text-anchor', 'middle');
-  initial.setAttribute('font-size', '16');
-  initial.setAttribute('fill', genderColor);
-  initial.textContent = individual.sex === 'U' ? '?' : individual.sex;
-  g.appendChild(initial);
+  // Place (birth place) if no dates and space available
+  const birthPlace = individual.birth?.place;
+  if (birthPlace && !datesStr) {
+    const placeText = svgEl('text');
+    placeText.setAttribute('x', '10');
+    placeText.setAttribute('y', String(HEADER_HEIGHT + 20));
+    placeText.setAttribute('font-size', '11');
+    placeText.setAttribute('fill', 'rgba(255,255,255,0.70)');
+    placeText.setAttribute('clip-path', `url(#${clipId})`);
+    placeText.textContent = birthPlace;
+    g.appendChild(placeText);
+  }
 
   // Click handler
   g.addEventListener('click', (e) => {

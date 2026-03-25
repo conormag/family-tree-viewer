@@ -25,6 +25,10 @@ export interface ExpandButton {
   x: number;
   /** SVG top-y of the parent cards' bottom edge (button sits just below) */
   parentBottomY: number;
+  /** Y of the couple connector line (card mid-height) — stub is drawn from here */
+  parentMidY: number;
+  /** For single-parent families: x of the card edge where the horizontal arm starts */
+  armFromX?: number;
   expanded: boolean;
 }
 
