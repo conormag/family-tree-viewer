@@ -75,7 +75,7 @@
     window.viewer = viewer;
 
     // Load sample.ged
-    fetch('/sample.ged')
+    fetch(import.meta.env.BASE_URL + 'sample.ged')
       .then(r => r.text())
       .then(text => {
         viewer.loadGedcom(text);

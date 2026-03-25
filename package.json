@@ -15,6 +15,7 @@
   "scripts": {
     "dev": "vite serve demo",
     "build": "tsc -p tsconfig.build.json && vite build",
+    "build:demo": "vite build --config vite.demo.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
