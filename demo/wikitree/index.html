@@ -163,8 +163,9 @@
       btn.disabled = true;
       spinner.style.display = 'block';
 
+      const apiBase = import.meta.env.VITE_WIKITREE_PROXY || undefined;
       try {
-        await viewer.loadWikiTree(id, { depth });
+        await viewer.loadWikiTree(id, { depth, apiBase });
       } catch (err) {
         errorMsg.textContent = err.message ?? 'Failed to load WikiTree data.';
         errorMsg.style.display = 'block';

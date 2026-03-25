@@ -115,9 +115,9 @@ export class FamilyTreeViewer {
     setTimeout(() => this.fitToScreen(), 0);
   }
 
-  async loadWikiTree(id: string, options: { depth?: number } = {}): Promise<void> {
+  async loadWikiTree(id: string, options: { depth?: number; apiBase?: string } = {}): Promise<void> {
     const { loadWikiTreeData } = await import('./loaders/wikitree.js');
-    const { tree, rootId } = await loadWikiTreeData(id, options.depth ?? 3);
+    const { tree, rootId } = await loadWikiTreeData(id, options.depth ?? 3, options.apiBase);
     this.header = null;
     this.options.rootId = rootId;
     this._afterTreeLoad(tree);

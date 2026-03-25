@@ -240,9 +240,11 @@ export function buildTreeFromWikiTree(
 export async function loadWikiTreeData(
   key: string,
   depth = 3,
+  apiBase?: string,
 ): Promise<{ tree: Tree; rootId: string }> {
+  const base = apiBase ?? WIKITREE_API;
   const fields = 'Id,Name,FirstName,MiddleName,LastNameAtBirth,Gender,BirthDate,BirthLocation,DeathDate,DeathLocation,Father,Mother,Spouses,PhotoData';
-  const url = `${WIKITREE_API}?action=getPeople&keys=${encodeURIComponent(key)}&ancestors=${depth}&appid=family-tree-viewer&format=json&fields=${fields}`;
+  const url = `${base}?action=getPeople&keys=${encodeURIComponent(key)}&ancestors=${depth}&appid=family-tree-viewer&format=json&fields=${fields}`;
 
   let response: Response;
   try {
