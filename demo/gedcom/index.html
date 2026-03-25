@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GEDCOM Demo — Family Tree Viewer</title>
+  <link rel="stylesheet" href="../shared.css">
+  <style>
+    body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .demo-header {
+      flex-shrink: 0;
+      padding: 0 16px;
+      height: 52px;
+      background: white;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .demo-header h1 { font-size: 15px; font-weight: 700; color: #1e293b; margin-right: 8px; }
+    .controls { display: flex; gap: 8px; align-items: center; margin-left: auto; }
+    button {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid #e2e8f0;
+      background: white;
+      color: #374151;
+    }
+    button:hover { background: #f1f5f9; }
+    button.primary { background: #3b82f6; color: white; border-color: #3b82f6; }
+    button.primary:hover { background: #2563eb; }
+    label { font-size: 13px; color: #374151; }
+    #tree-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="nav" style="flex-shrink:0;">
+    <a href="../" class="nav-logo">🌳 Family Tree Viewer</a>
+    <a href="./" class="active">GEDCOM Demo</a>
+    <a href="../wikitree/">WikiTree Demo</a>
+    <a href="../docs/">API Docs</a>
+  </nav>
+
+  <header class="demo-header">
+    <h1>GEDCOM Demo</h1>
+    <div class="controls">
+      <label>
+        <input type="checkbox" id="theme-toggle"> Dark mode
+      </label>
+      <button onclick="viewer.fitToScreen()">Fit to screen</button>
+      <button onclick="exportGedcom()">Export GEDCOM</button>
+      <label>
+        <input type="file" id="file-input" accept=".ged" style="display:none">
+        <button onclick="document.getElementById('file-input').click()">Load .ged file</button>
+      </label>
+    </div>
+  </header>
+
+  <div id="tree-container"></div>
+
+  <script type="module">
+    import { FamilyTreeViewer } from '../../src/index.ts';
+
+    let currentGedcom = null;
+
+    const viewer = new FamilyTreeViewer('#tree-container', {
+      theme: 'light',
+      readonly: false,
+      onSave: (gedcom) => {
+        currentGedcom = gedcom;
+        console.log('GEDCOM updated, length:', gedcom.length);
+      },
+    });
+
+    window.viewer = viewer;
+
+    // Load sample.ged (in demo/public/)
+    fetch(import.meta.env.BASE_URL + 'sample.ged')
+      .then(r => r.text())
+      .then(text => {
+        viewer.loadGedcom(text);
+        currentGedcom = text;
+      });
+
+    // File input
+    document.getElementById('file-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        viewer.loadGedcom(ev.target.result);
+        currentGedcom = ev.target.result;
+      };
+      reader.readAsText(file, 'utf-8');
+    });
+
+    // Theme toggle
+    document.getElementById('theme-toggle').addEventListener('change', (e) => {
+      const theme = e.target.checked ? 'dark' : 'light';
+      viewer.destroy();
+      const container = document.getElementById('tree-container');
+      window.viewer = new FamilyTreeViewer(container, {
+        gedcom: currentGedcom,
+        theme,
+        readonly: false,
+        onSave: (g) => { currentGedcom = g; },
+      });
+    });
+
+    window.exportGedcom = () => {
+      const gedcom = viewer.getGedcom();
+      const blob = new Blob([gedcom], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'family-tree.ged';
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+  </script>
+</body>
+</html>

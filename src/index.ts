@@ -102,17 +102,25 @@ export class FamilyTreeViewer {
       this.header = headNode;
     }
 
-    this.tree = buildTree(nodes);
+    this._afterTreeLoad(buildTree(nodes));
+  }
+
+  private _afterTreeLoad(tree: Tree): void {
+    this.tree = tree;
     this.editEngine = new EditEngine(this.tree, this.bus);
     this.sidePanel['tree'] = this.tree;
     this.sidePanel['editEngine'] = this.editEngine;
-
-    // Auto-expand root-level families (those whose parents are root ancestors)
     this.expandedFamilies = this._computeInitialExpanded();
-
     this._rerender();
-    // fitToContainer after a microtask to ensure SVG is painted
     setTimeout(() => this.fitToScreen(), 0);
+  }
+
+  async loadWikiTree(id: string, options: { depth?: number } = {}): Promise<void> {
+    const { loadWikiTreeData } = await import('./loaders/wikitree.js');
+    const { tree, rootId } = await loadWikiTreeData(id, options.depth ?? 3);
+    this.header = null;
+    this.options.rootId = rootId;
+    this._afterTreeLoad(tree);
   }
 
   getGedcom(): string {
