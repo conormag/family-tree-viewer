@@ -100,7 +100,8 @@ export function buildTreeFromWikiTree(
   const tree = new Tree();
 
   // Pass 1: create Individual records
-  for (const p of Object.values(persons)) {
+  // Filter out placeholder entries (Id <= 0) used by WikiTree for private/missing ancestors
+  for (const p of Object.values(persons).filter(p => p.Id > 0)) {
     const givenName = [p.FirstName, p.MiddleName].filter(Boolean).join(' ');
     const sex = p.Gender === 'Male' ? 'M' : p.Gender === 'Female' ? 'F' : 'U';
 
@@ -148,9 +149,9 @@ export function buildTreeFromWikiTree(
   // Pass 2: synthesise Family records from parent-child links
   const familyMap = new Map<string, FamilyAccumulator>();
 
-  for (const p of Object.values(persons)) {
-    const fatherId = p.Father && p.Father !== 0 ? p.Father : undefined;
-    const motherId = p.Mother && p.Mother !== 0 ? p.Mother : undefined;
+  for (const p of Object.values(persons).filter(p => p.Id > 0)) {
+    const fatherId = p.Father && p.Father > 0 ? p.Father : undefined;
+    const motherId = p.Mother && p.Mother > 0 ? p.Mother : undefined;
 
     if (!fatherId && !motherId) continue;
 

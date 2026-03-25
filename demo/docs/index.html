@@ -60,7 +60,7 @@ const text = await fetch('family.ged').then(r => r.text());
 viewer.loadGedcom(text);
 
 // — or — load ancestors from WikiTree
-await viewer.loadWikiTree('Washington-1', { depth: 3 });</code></pre>
+await viewer.loadWikiTree('Einstein-1', { depth: 3 });</code></pre>
 
     <h2>Constructor options</h2>
     <p><code>new FamilyTreeViewer(container, options?)</code> — <code>container</code> is a CSS selector string or <code>HTMLElement</code>.</p>
@@ -122,7 +122,7 @@ await viewer.loadWikiTree('Washington-1', { depth: 3 });</code></pre>
       <li>The resulting tree can be exported as GEDCOM via <code>getGedcom()</code>. IDs use the <code>@W{n}@</code> format.</li>
     </ul>
     <pre><code>try {
-  await viewer.loadWikiTree('Darwin-1', { depth: 2 });
+  await viewer.loadWikiTree('Darwin-15', { depth: 2 });
 } catch (err) {
   if (err.name === 'WikiTreeError') {
     console.error('WikiTree error:', err.message);
