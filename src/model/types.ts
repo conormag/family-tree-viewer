@@ -18,6 +18,7 @@ export interface Individual {
   notes: string[];
   familyAsChild?: string;       // FAM id
   familiesAsSpouse: string[];   // FAM ids
+  photoUrl?: string;            // absolute URL to a thumbnail photo
 }
 
 export interface Family {

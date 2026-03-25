@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Docs — Family Tree Viewer</title>
+  <link rel="stylesheet" href="../shared.css">
+  <style>
+    body { overflow-y: auto; }
+    .docs { max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; }
+    .docs h2 { font-size: 20px; font-weight: 700; color: #0f172a; margin: 40px 0 12px; padding-top: 8px; border-top: 1px solid #e2e8f0; }
+    .docs h2:first-child { border-top: none; margin-top: 0; }
+    .docs h3 { font-size: 15px; font-weight: 700; color: #1e293b; margin: 24px 0 8px; }
+    .docs p { font-size: 14px; color: #475569; margin-bottom: 12px; }
+    .docs ul { padding-left: 20px; font-size: 14px; color: #475569; margin-bottom: 12px; }
+    .docs li { margin-bottom: 4px; }
+    .docs table { margin: 0 0 24px; }
+    .tag {
+      display: inline-block;
+      background: #f0fdf4;
+      color: #16a34a;
+      border: 1px solid #bbf7d0;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      vertical-align: middle;
+      margin-left: 6px;
+    }
+    .tag.async { background: #eff6ff; color: #2563eb; border-color: #bfdbfe; }
+  </style>
+</head>
+<body>
+
+  <nav class="nav">
+    <a href="../" class="nav-logo">🌳 Family Tree Viewer</a>
+    <a href="../gedcom/">GEDCOM Demo</a>
+    <a href="../wikitree/">WikiTree Demo</a>
+    <a href="./" class="active">API Docs</a>
+  </nav>
+
+  <div class="docs">
+
+    <h2>Installation</h2>
+    <pre><code>npm install family-tree-viewer</code></pre>
+    <p>Or via CDN (UMD bundle, no build step required):</p>
+    <pre><code>&lt;script src="https://unpkg.com/family-tree-viewer"&gt;&lt;/script&gt;</code></pre>
+
+    <h2>Quick start</h2>
+    <pre><code>import { FamilyTreeViewer } from 'family-tree-viewer';
+
+const viewer = new FamilyTreeViewer('#container', {
+  theme: 'light',
+  readonly: false,
+  onSave: (gedcom) => localStorage.setItem('tree', gedcom),
+});
+
+// Load a GEDCOM file
+const text = await fetch('family.ged').then(r => r.text());
+viewer.loadGedcom(text);
+
+// — or — load ancestors from WikiTree
+await viewer.loadWikiTree('Einstein-1', { depth: 3 });</code></pre>
+
+    <h2>Constructor options</h2>
+    <p><code>new FamilyTreeViewer(container, options?)</code> — <code>container</code> is a CSS selector string or <code>HTMLElement</code>.</p>
+    <table>
+      <thead>
+        <tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>gedcom</code></td><td><code>string</code></td><td>—</td><td>Initial GEDCOM text to load on construction.</td></tr>
+        <tr><td><code>rootId</code></td><td><code>string</code></td><td>auto</td><td>GEDCOM <code>@I…@</code> id of the root person for layout.</td></tr>
+        <tr><td><code>theme</code></td><td><code>'light' | 'dark'</code></td><td><code>'light'</code></td><td>Visual theme.</td></tr>
+        <tr><td><code>readonly</code></td><td><code>boolean</code></td><td><code>false</code></td><td>Hides all editing controls when <code>true</code>.</td></tr>
+        <tr><td><code>onSave</code></td><td><code>(gedcom: string) =&gt; void</code></td><td>—</td><td>Called after any edit with the serialised GEDCOM string.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Public methods</h2>
+    <table>
+      <thead>
+        <tr><th>Method</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>loadGedcom(text: string)</code></td>
+          <td>Parse and render a GEDCOM string. Replaces any previously loaded tree.</td>
+        </tr>
+        <tr>
+          <td><code>loadWikiTree(id, opts?)</code> <span class="tag async">async</span></td>
+          <td>Fetch ancestors from WikiTree by profile key (e.g. <code>'Washington-1'</code>). <code>opts.depth</code> (1–4, default 3) controls how many ancestor generations to retrieve.</td>
+        </tr>
+        <tr>
+          <td><code>getGedcom(): string</code></td>
+          <td>Serialise the current in-memory tree to a GEDCOM 5.5.1 string.</td>
+        </tr>
+        <tr>
+          <td><code>fitToScreen()</code></td>
+          <td>Pan and zoom to fit the entire tree in the container.</td>
+        </tr>
+        <tr>
+          <td><code>selectPerson(id: string)</code></td>
+          <td>Programmatically select a person by their GEDCOM id and open the side panel.</td>
+        </tr>
+        <tr>
+          <td><code>destroy()</code></td>
+          <td>Remove all event listeners and DOM nodes. Call before removing the container.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>WikiTree integration</h2>
+    <p>
+      <code>loadWikiTree</code> calls the public <a href="https://www.wikitree.com/wiki/Help:API_Documentation" target="_blank" rel="noopener" style="color:#2563eb;">WikiTree API</a>
+      (<code>getAncestors</code> action) directly from the browser — no server proxy required, as WikiTree supports CORS for public profiles.
+    </p>
+    <ul>
+      <li>Only <strong>public</strong> WikiTree profiles can be accessed without authentication.</li>
+      <li>The <code>depth</code> option controls ancestor generations (1–4). Larger values fetch exponentially more data.</li>
+      <li>On failure a <code>WikiTreeError</code> is thrown with a descriptive message. Catch it to display user-facing errors.</li>
+      <li>The resulting tree can be exported as GEDCOM via <code>getGedcom()</code>. IDs use the <code>@W{n}@</code> format.</li>
+    </ul>
+    <pre><code>try {
+  await viewer.loadWikiTree('Darwin-15', { depth: 2 });
+} catch (err) {
+  if (err.name === 'WikiTreeError') {
+    console.error('WikiTree error:', err.message);
+  }
+}</code></pre>
+
+    <h2>GEDCOM support</h2>
+    <p>Parser targets GEDCOM 5.5.1. Supported features:</p>
+    <ul>
+      <li>Individuals (<code>INDI</code>): name, sex, birth, death, notes, family links</li>
+      <li>Families (<code>FAM</code>): husband, wife, children, marriage event</li>
+      <li>Multi-line values via <code>CONC</code> / <code>CONT</code> continuation tags</li>
+      <li>UTF-8 encoding (ANSEL files load with a console warning)</li>
+    </ul>
+    <p>Not currently parsed: sources (<code>SOUR</code>), repositories, multimedia, custom tags (<code>_XXX</code>).</p>
+
+    <h2>TypeScript types</h2>
+    <p>All public types are re-exported from the package entry point:</p>
+    <pre><code>import type { Individual, Family, EventRecord, Sex } from 'family-tree-viewer';</code></pre>
+    <table>
+      <thead>
+        <tr><th>Type</th><th>Key fields</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>Individual</code></td><td><code>id, givenName, surname, sex, birth?, death?, familyAsChild?, familiesAsSpouse[]</code></td></tr>
+        <tr><td><code>Family</code></td><td><code>id, husbandId?, wifeId?, childIds[], marriage?</code></td></tr>
+        <tr><td><code>EventRecord</code></td><td><code>type, date?, year?, place?</code></td></tr>
+        <tr><td><code>Sex</code></td><td><code>'M' | 'F' | 'U'</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>License</h2>
+    <p>
+      Released under the <strong>AGPL-3.0</strong> license. If you deploy this library as part of a network service,
+      you must make the complete source code available to users of that service.
+      See the <a href="https://github.com/conmacq/family-tree-viewer/blob/main/LICENSE" target="_blank" rel="noopener" style="color:#2563eb;">LICENSE</a> file for details.
+    </p>
+
+  </div>
+
+</body>
+</html>

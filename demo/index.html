@@ -3,122 +3,98 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Family Tree Viewer — Demo</title>
+  <title>Family Tree Viewer</title>
+  <link rel="stylesheet" href="./shared.css">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; background: #f8fafc; }
-    header {
-      padding: 12px 24px;
-      background: white;
-      border-bottom: 1px solid #e2e8f0;
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-    header h1 { font-size: 18px; font-weight: 700; color: #1e293b; }
-    .controls { display: flex; gap: 8px; align-items: center; margin-left: auto; }
-    button {
-      padding: 6px 14px;
-      border-radius: 6px;
-      font-size: 13px;
-      font-weight: 500;
-      cursor: pointer;
-      border: 1px solid #e2e8f0;
-      background: white;
-      color: #374151;
-    }
-    button:hover { background: #f1f5f9; }
-    button.primary { background: #3b82f6; color: white; border-color: #3b82f6; }
-    button.primary:hover { background: #2563eb; }
-    #tree-container {
-      position: relative;
-      width: 100vw;
-      height: calc(100vh - 57px);
-      overflow: hidden;
-    }
-    label { font-size: 13px; color: #374151; }
-    #theme-toggle { cursor: pointer; }
+    .divider { border: none; border-top: 1px solid #e2e8f0; margin: 0; }
+    .install-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 640px) { .install-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-  <header>
-    <h1>🌳 Family Tree Viewer</h1>
-    <div class="controls">
-      <label>
-        <input type="checkbox" id="theme-toggle"> Dark mode
-      </label>
-      <button onclick="viewer.fitToScreen()">Fit to screen</button>
-      <button onclick="exportGedcom()">Export GEDCOM</button>
-      <label>
-        <input type="file" id="file-input" accept=".ged" style="display:none">
-        <button onclick="document.getElementById('file-input').click()">Load .ged file</button>
-      </label>
+
+  <nav class="nav">
+    <a href="./" class="nav-logo">🌳 Family Tree Viewer</a>
+    <a href="./gedcom/" >GEDCOM Demo</a>
+    <a href="./wikitree/">WikiTree Demo</a>
+    <a href="./docs/">API Docs</a>
+  </nav>
+
+  <section class="hero">
+    <h1>Embeddable family tree<br>visualisation for the web</h1>
+    <p>Parse GEDCOM files or pull live data from WikiTree. Zero runtime dependencies. Pan, zoom, and edit — all in the browser.</p>
+    <div class="hero-cta">
+      <a href="./gedcom/" class="btn btn-primary">Try GEDCOM demo →</a>
+      <a href="./wikitree/" class="btn btn-outline">Try WikiTree demo</a>
     </div>
-  </header>
+    <div class="badges">
+      <span class="badge">AGPL-3.0</span>
+      <span class="badge">Zero dependencies</span>
+      <span class="badge">TypeScript</span>
+      <span class="badge">ESM + UMD</span>
+    </div>
+  </section>
 
-  <div id="tree-container"></div>
+  <hr class="divider">
 
-  <script type="module">
-    import { FamilyTreeViewer } from '../src/index.ts';
+  <div class="cards">
+    <div class="card">
+      <div class="card-icon">📄</div>
+      <h3>GEDCOM 5.5.1</h3>
+      <p>Full round-trip parse and serialise. Handles CONC/CONT, multi-byte characters, and large files.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📦</div>
+      <h3>Zero dependencies</h3>
+      <p>Ships as a single ESM/UMD bundle. No React, no D3, no bloat. Drop it on any page.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🖱️</div>
+      <h3>Pan, zoom &amp; edit</h3>
+      <p>Touch-friendly pan and wheel zoom. Inline side-panel editing with live tree updates.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🌐</div>
+      <h3>WikiTree live data</h3>
+      <p>Load ancestors directly from WikiTree by profile ID. No file required, no auth needed.</p>
+    </div>
+  </div>
 
-    let currentGedcom = null;
+  <hr class="divider">
 
-    const viewer = new FamilyTreeViewer('#tree-container', {
-      theme: 'light',
-      readonly: false,
-      onSave: (gedcom) => {
-        currentGedcom = gedcom;
-        console.log('GEDCOM updated, length:', gedcom.length);
-      },
-    });
+  <div class="section">
+    <h2>Installation</h2>
+    <div class="install-grid">
+      <div>
+        <p style="font-size:13px;color:#64748b;margin-bottom:8px;">npm</p>
+        <pre><code>npm install family-tree-viewer</code></pre>
+      </div>
+      <div>
+        <p style="font-size:13px;color:#64748b;margin-bottom:8px;">CDN (unpkg)</p>
+        <pre><code>&lt;script src="https://unpkg.com/family-tree-viewer"&gt;&lt;/script&gt;</code></pre>
+      </div>
+    </div>
 
-    window.viewer = viewer;
+    <h2 style="margin-top:40px;">Quick start</h2>
+    <pre><code>import { FamilyTreeViewer } from 'family-tree-viewer';
 
-    // Load sample.ged
-    fetch(import.meta.env.BASE_URL + 'sample.ged')
-      .then(r => r.text())
-      .then(text => {
-        viewer.loadGedcom(text);
-        currentGedcom = text;
-      });
+const viewer = new FamilyTreeViewer('#container', {
+  theme: 'light',
+  onSave: (gedcom) =&gt; console.log(gedcom),
+});
 
-    // File input
-    document.getElementById('file-input').addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        viewer.loadGedcom(ev.target.result);
-      };
-      reader.readAsText(file, 'utf-8');
-    });
+// Load a GEDCOM string
+viewer.loadGedcom(gedcomText);
 
-    // Theme toggle
-    document.getElementById('theme-toggle').addEventListener('change', (e) => {
-      const theme = e.target.checked ? 'dark' : 'light';
-      document.getElementById('tree-container').className = '';
-      // Re-create viewer with new theme (simplest approach for demo)
-      viewer.destroy();
-      const container = document.getElementById('tree-container');
-      const gedcom = currentGedcom;
-      window.viewer = new FamilyTreeViewer(container, {
-        gedcom,
-        theme,
-        readonly: false,
-        onSave: (g) => { currentGedcom = g; },
-      });
-    });
+// — or — pull directly from WikiTree
+await viewer.loadWikiTree('Einstein-1', { depth: 3 });</code></pre>
 
-    window.exportGedcom = () => {
-      const gedcom = viewer.getGedcom();
-      const blob = new Blob([gedcom], { type: 'text/plain;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'family-tree.ged';
-      a.click();
-      URL.revokeObjectURL(url);
-    };
-  </script>
+    <p style="margin-top:32px; font-size:14px;">
+      See the <a href="./docs/" style="color:#2563eb;">API documentation</a> for the full option reference,
+      or jump straight to the <a href="./gedcom/" style="color:#2563eb;">GEDCOM demo</a>
+      and <a href="./wikitree/" style="color:#2563eb;">WikiTree demo</a>.
+    </p>
+  </div>
+
 </body>
 </html>

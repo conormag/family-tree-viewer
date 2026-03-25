@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WikiTree Demo — Family Tree Viewer</title>
+  <link rel="stylesheet" href="../shared.css">
+  <style>
+    body { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    .demo-header {
+      flex-shrink: 0;
+      padding: 0 16px;
+      height: 52px;
+      background: white;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .demo-header h1 { font-size: 15px; font-weight: 700; color: #1e293b; }
+
+    #wt-input {
+      padding: 6px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      font-size: 13px;
+      width: 180px;
+      outline: none;
+    }
+    #wt-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px #bfdbfe; }
+
+    #depth-select {
+      padding: 6px 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      font-size: 13px;
+      background: white;
+    }
+
+    button {
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid #e2e8f0;
+      background: white;
+      color: #374151;
+    }
+    button:hover:not(:disabled) { background: #f1f5f9; }
+    button.primary { background: #3b82f6; color: white; border-color: #3b82f6; }
+    button.primary:hover:not(:disabled) { background: #2563eb; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .examples {
+      font-size: 12px;
+      color: #94a3b8;
+      margin-left: auto;
+    }
+    .examples span {
+      display: inline-block;
+      background: #f1f5f9;
+      color: #475569;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin: 0 2px;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .examples span:hover { background: #e2e8f0; }
+
+    #spinner {
+      display: none;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #e2e8f0;
+      border-top-color: #3b82f6;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #error-msg {
+      display: none;
+      margin: 12px 16px 0;
+      padding: 10px 14px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #dc2626;
+      border-radius: 8px;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+
+    #tree-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+
+  <nav class="nav" style="flex-shrink:0;">
+    <a href="../" class="nav-logo">🌳 Family Tree Viewer</a>
+    <a href="../gedcom/">GEDCOM Demo</a>
+    <a href="./" class="active">WikiTree Demo</a>
+    <a href="../docs/">API Docs</a>
+  </nav>
+
+  <header class="demo-header">
+    <h1>WikiTree</h1>
+    <input id="wt-input" type="text" placeholder="e.g. Washington-1" value="" spellcheck="false">
+    <select id="depth-select" title="Ancestor generations">
+      <option value="1">1 generation</option>
+      <option value="2">2 generations</option>
+      <option value="3" selected>3 generations</option>
+      <option value="4">4 generations</option>
+    </select>
+    <button class="primary" id="load-btn" onclick="loadTree()">Load</button>
+    <div id="spinner"></div>
+    <div class="examples">
+      Try:
+      <span onclick="setId('Einstein-1')">Einstein-1</span>
+      <span onclick="setId('Darwin-15')">Darwin-15</span>
+      <span onclick="setId('Washington-11')">Washington-11</span>
+    </div>
+    <button onclick="viewer && viewer.fitToScreen()">Fit to screen</button>
+    <button onclick="exportGedcom()">Export GEDCOM</button>
+  </header>
+
+  <div id="error-msg"></div>
+  <div id="tree-container"></div>
+
+  <script type="module">
+    import { FamilyTreeViewer } from '../../src/index.ts';
+
+    const viewer = new FamilyTreeViewer('#tree-container', {
+      theme: 'light',
+      readonly: true,
+    });
+
+    window.viewer = viewer;
+
+    window.setId = (id) => {
+      document.getElementById('wt-input').value = id;
+      loadTree();
+    };
+
+    window.loadTree = async () => {
+      const id = document.getElementById('wt-input').value.trim();
+      if (!id) return;
+
+      const depth = parseInt(document.getElementById('depth-select').value, 10);
+      const btn = document.getElementById('load-btn');
+      const spinner = document.getElementById('spinner');
+      const errorMsg = document.getElementById('error-msg');
+
+      errorMsg.style.display = 'none';
+      btn.disabled = true;
+      spinner.style.display = 'block';
+
+      try {
+        await viewer.loadWikiTree(id, { depth });
+      } catch (err) {
+        errorMsg.textContent = err.message ?? 'Failed to load WikiTree data.';
+        errorMsg.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+      }
+    };
+
+    window.exportGedcom = () => {
+      const gedcom = viewer.getGedcom();
+      const blob = new Blob([gedcom], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'wikitree-export.ged';
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    // Load a default on page open
+    document.getElementById('wt-input').value = 'Einstein-1';
+    loadTree();
+  </script>
+</body>
+</html>
