@@ -4,6 +4,15 @@ import { resolve } from 'path';
 export default defineConfig({
   root: 'demo',
   base: '/family-tree-viewer/',
+  server: {
+    proxy: {
+      '/wikitree-proxy': {
+        target: 'https://api.wikitree.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace('/wikitree-proxy', '/api.php'),
+      },
+    },
+  },
   build: {
     outDir: '../docs',
     emptyOutDir: true,

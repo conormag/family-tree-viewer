@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import { Tree } from '../model/Tree.js';
 import type { Individual, Family } from '../model/types.js';
 
@@ -30,7 +31,12 @@ export interface WikiTreePerson {
   Spouses?: Record<string, WikiTreeSpouse>;
 }
 
-const WIKITREE_API = 'https://api.wikitree.com/api.php';
+// In dev, route through the Vite proxy (localhost has no CORS allowance from WikiTree).
+// import.meta.env.DEV is statically replaced with `false` at build time, so production
+// bundles always use the direct URL.
+const WIKITREE_API = import.meta.env.DEV
+  ? '/wikitree-proxy'
+  : 'https://api.wikitree.com/api.php';
 
 const indId = (n: number): string => `@W${n}@`;
 
