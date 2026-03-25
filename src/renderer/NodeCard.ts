@@ -153,7 +153,7 @@ export function createNodeCard(
   avatarRing.setAttribute('opacity', '0.6');
   g.appendChild(avatarRing);
 
-  // Avatar circle fill
+  // Avatar circle fill (background, always present)
   const avatar = svgEl('circle');
   avatar.setAttribute('class', 'ftv-node__photo');
   avatar.setAttribute('cx', String(avatarCX));
@@ -164,17 +164,40 @@ export function createNodeCard(
   avatar.setAttribute('stroke-width', '2');
   g.appendChild(avatar);
 
-  // Gender initial in avatar
-  const initial = svgEl('text');
-  initial.setAttribute('x', String(avatarCX));
-  initial.setAttribute('y', String(avatarCY + 6));
-  initial.setAttribute('text-anchor', 'middle');
-  initial.setAttribute('font-size', '16');
-  initial.setAttribute('font-weight', '600');
-  initial.setAttribute('fill', 'white');
-  initial.setAttribute('opacity', '0.85');
-  initial.textContent = sex === 'U' ? '?' : sex;
-  g.appendChild(initial);
+  if (individual.photoUrl) {
+    // Clip the photo to the avatar circle
+    const photoClipId = `ftv-pclip-${sanitizeId(layoutNode.id)}`;
+    const photoClip = svgEl('clipPath');
+    photoClip.id = photoClipId;
+    const photoClipCircle = svgEl('circle');
+    photoClipCircle.setAttribute('cx', String(avatarCX));
+    photoClipCircle.setAttribute('cy', String(avatarCY));
+    photoClipCircle.setAttribute('r', String(AVATAR_R));
+    photoClip.appendChild(photoClipCircle);
+    defs.appendChild(photoClip);
+
+    const img = svgEl('image');
+    img.setAttribute('href', individual.photoUrl);
+    img.setAttribute('x', String(avatarCX - AVATAR_R));
+    img.setAttribute('y', String(avatarCY - AVATAR_R));
+    img.setAttribute('width', String(AVATAR_R * 2));
+    img.setAttribute('height', String(AVATAR_R * 2));
+    img.setAttribute('preserveAspectRatio', 'xMidYMid slice');
+    img.setAttribute('clip-path', `url(#${photoClipId})`);
+    g.appendChild(img);
+  } else {
+    // Gender initial in avatar
+    const initial = svgEl('text');
+    initial.setAttribute('x', String(avatarCX));
+    initial.setAttribute('y', String(avatarCY + 6));
+    initial.setAttribute('text-anchor', 'middle');
+    initial.setAttribute('font-size', '16');
+    initial.setAttribute('font-weight', '600');
+    initial.setAttribute('fill', 'white');
+    initial.setAttribute('opacity', '0.85');
+    initial.textContent = sex === 'U' ? '?' : sex;
+    g.appendChild(initial);
+  }
 
   // Name — split across two lines in header band
   const givenName = individual.givenName || '';

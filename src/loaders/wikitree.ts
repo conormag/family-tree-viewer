@@ -9,6 +9,10 @@ export class WikiTreeError extends Error {
   }
 }
 
+interface WikiTreePhotoData {
+  url: string;
+}
+
 interface WikiTreeSpouse {
   Id: string | number;
   marriage_date?: string;
@@ -29,6 +33,7 @@ export interface WikiTreePerson {
   Father?: number;
   Mother?: number;
   Spouses?: WikiTreeSpouse[];
+  PhotoData?: WikiTreePhotoData | null;
 }
 
 // In dev, route through the Vite proxy (localhost has no CORS allowance from WikiTree).
@@ -102,6 +107,10 @@ export function buildTreeFromWikiTree(
     const birthParsed = parseWikiDate(p.BirthDate);
     const deathParsed = parseWikiDate(p.DeathDate);
 
+    const photoUrl = p.PhotoData?.url
+      ? `https://www.wikitree.com${p.PhotoData.url}`
+      : undefined;
+
     const ind: Individual = {
       id: indId(p.Id),
       givenName,
@@ -110,6 +119,7 @@ export function buildTreeFromWikiTree(
       events: [],
       notes: [],
       familiesAsSpouse: [],
+      ...(photoUrl ? { photoUrl } : {}),
       ...(birthParsed.date !== undefined || birthParsed.year !== undefined || p.BirthLocation
         ? {
             birth: {
@@ -230,7 +240,7 @@ export async function loadWikiTreeData(
   key: string,
   depth = 3,
 ): Promise<{ tree: Tree; rootId: string }> {
-  const fields = 'Id,Name,FirstName,MiddleName,LastNameAtBirth,Gender,BirthDate,BirthLocation,DeathDate,DeathLocation,Father,Mother,Spouses';
+  const fields = 'Id,Name,FirstName,MiddleName,LastNameAtBirth,Gender,BirthDate,BirthLocation,DeathDate,DeathLocation,Father,Mother,Spouses,PhotoData';
   const url = `${WIKITREE_API}?action=getPeople&keys=${encodeURIComponent(key)}&ancestors=${depth}&appid=family-tree-viewer&format=json&fields=${fields}`;
 
   let response: Response;
