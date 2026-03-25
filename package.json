@@ -1,6 +1,6 @@
 {
   "name": "family-tree-viewer",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "main": "./dist/family-tree-viewer.umd.cjs",
   "module": "./dist/family-tree-viewer.js",
