@@ -10,7 +10,7 @@ export class WikiTreeError extends Error {
 }
 
 interface WikiTreeSpouse {
-  Id: number;
+  Id: string | number;
   marriage_date?: string;
   marriage_location?: string;
 }
@@ -28,7 +28,7 @@ export interface WikiTreePerson {
   DeathLocation?: string;
   Father?: number;
   Mother?: number;
-  Spouses?: Record<string, WikiTreeSpouse>;
+  Spouses?: WikiTreeSpouse[];
 }
 
 // In dev, route through the Vite proxy (localhost has no CORS allowance from WikiTree).
@@ -159,12 +159,14 @@ export function buildTreeFromWikiTree(
   }
 
   for (const [key, acc] of familyMap) {
-    // Look up marriage info from father's Spouses record
+    // Look up marriage info from father's Spouses array
     let marriage: Family['marriage'];
     if (acc.fatherId && acc.motherId) {
       const father = persons[String(acc.fatherId)];
       if (father?.Spouses) {
-        const spouseEntry = father.Spouses[String(acc.motherId)];
+        const spouseEntry = father.Spouses.find(
+          s => String(s.Id) === String(acc.motherId),
+        );
         if (spouseEntry) {
           const marriageParsed = parseWikiDate(spouseEntry.marriage_date);
           if (marriageParsed.date !== undefined || marriageParsed.year !== undefined || spouseEntry.marriage_location) {
@@ -228,7 +230,8 @@ export async function loadWikiTreeData(
   key: string,
   depth = 3,
 ): Promise<{ tree: Tree; rootId: string }> {
-  const url = `${WIKITREE_API}?action=getAncestors&key=${encodeURIComponent(key)}&depth=${depth}&appid=family-tree-viewer&format=json`;
+  const fields = 'Id,Name,FirstName,MiddleName,LastNameAtBirth,Gender,BirthDate,BirthLocation,DeathDate,DeathLocation,Father,Mother,Spouses';
+  const url = `${WIKITREE_API}?action=getPeople&keys=${encodeURIComponent(key)}&ancestors=${depth}&appid=family-tree-viewer&format=json&fields=${fields}`;
 
   let response: Response;
   try {
@@ -248,29 +251,27 @@ export async function loadWikiTreeData(
     throw new WikiTreeError('WikiTree API returned invalid JSON');
   }
 
-  if (!Array.isArray(data) || data.length < 2) {
+  if (!Array.isArray(data) || data.length < 1) {
     throw new WikiTreeError('Unexpected WikiTree API response shape');
   }
 
-  const statusObj = data[0] as { status?: string };
-  if (statusObj.status !== 'OK') {
-    throw new WikiTreeError(`WikiTree API error: ${statusObj.status ?? 'unknown'}`);
+  const payload = data[0] as {
+    status?: string;
+    resultByKey?: Record<string, { status?: string; Id: number | null }>;
+    people?: Record<string, WikiTreePerson>;
+  };
+
+  // Check if the requested key was found
+  const keyResult = payload.resultByKey?.[key];
+  if (!keyResult || keyResult.Id == null) {
+    const msg = keyResult?.status ?? 'Profile not found';
+    throw new WikiTreeError(`WikiTree: ${msg}`);
   }
 
-  const payload = data[1] as { ancestors?: Record<string, WikiTreePerson> };
-  const ancestors = payload.ancestors;
-  if (!ancestors || typeof ancestors !== 'object') {
-    throw new WikiTreeError('WikiTree API response missing ancestors');
+  const people = payload.people;
+  if (!people || typeof people !== 'object') {
+    throw new WikiTreeError('WikiTree API response missing people');
   }
 
-  // Find the root person's numeric ID by matching Name === key
-  let rootNumericId: number | undefined;
-  for (const p of Object.values(ancestors)) {
-    if (p.Name === key) {
-      rootNumericId = p.Id;
-      break;
-    }
-  }
-
-  return buildTreeFromWikiTree(ancestors, rootNumericId);
+  return buildTreeFromWikiTree(people, keyResult.Id);
 }

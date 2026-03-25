@@ -175,17 +175,17 @@ describe('buildTreeFromWikiTree — single parent', () => {
 
 // ── loadWikiTreeData ─────────────────────────────────────────────────────────
 
-function makeOkResponse(ancestors: Record<string, WikiTreePerson>) {
+function makeOkResponse(people: Record<string, WikiTreePerson>, key: string, rootId: number) {
   return {
     ok: true,
-    json: async () => [{ status: 'OK' }, { ancestors }],
+    json: async () => [{ status: '', resultByKey: { [key]: { Id: rootId } }, people }],
   } as unknown as Response;
 }
 
-function makeErrorResponse(status: string) {
+function makeErrorResponse(keyStatus: string) {
   return {
     ok: true,
-    json: async () => [{ status }, {}],
+    json: async () => [{ status: '', resultByKey: { 'Washington-1': { status: keyStatus, Id: null } }, people: {} }],
   } as unknown as Response;
 }
 
@@ -203,7 +203,7 @@ describe('loadWikiTreeData', () => {
 
   it('returns tree and rootId for valid response', async () => {
     const george: WikiTreePerson = { Id: 1, Name: 'Washington-1', FirstName: 'George', LastNameAtBirth: 'Washington', Gender: 'Male', Father: 0, Mother: 0 };
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeOkResponse({ '1': george })));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeOkResponse({ '1': george }, 'Washington-1', 1)));
 
     const { tree, rootId } = await loadWikiTreeData('Washington-1');
     expect(tree.getIndividual('@W1@')).toBeDefined();
@@ -215,8 +215,8 @@ describe('loadWikiTreeData', () => {
     await expect(loadWikiTreeData('Washington-1')).rejects.toThrow(WikiTreeError);
   });
 
-  it('throws WikiTreeError when status is not OK', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeErrorResponse('Error')));
+  it('throws WikiTreeError when profile not found', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(makeErrorResponse('Invalid profile')));
     await expect(loadWikiTreeData('Washington-1')).rejects.toThrow(WikiTreeError);
   });
 
@@ -227,11 +227,11 @@ describe('loadWikiTreeData', () => {
 
   it('includes depth in the API request URL', async () => {
     const george: WikiTreePerson = { Id: 1, Name: 'Washington-1', FirstName: 'George', LastNameAtBirth: 'Washington', Gender: 'Male', Father: 0, Mother: 0 };
-    const fetchMock = vi.fn().mockResolvedValue(makeOkResponse({ '1': george }));
+    const fetchMock = vi.fn().mockResolvedValue(makeOkResponse({ '1': george }, 'Washington-1', 1));
     vi.stubGlobal('fetch', fetchMock);
 
     await loadWikiTreeData('Washington-1', 4);
     const url: string = fetchMock.mock.calls[0][0];
-    expect(url).toContain('depth=4');
+    expect(url).toContain('ancestors=4');
   });
 });
