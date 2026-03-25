@@ -253,6 +253,10 @@ export async function loadWikiTreeData(
     throw new WikiTreeError(`Network error fetching WikiTree data: ${(err as Error).message}`);
   }
 
+  if (response.status === 429) {
+    throw new WikiTreeError('WikiTree rate limit reached — please wait a moment and try again.');
+  }
+
   if (!response.ok) {
     throw new WikiTreeError(`WikiTree API returned HTTP ${response.status}`);
   }
