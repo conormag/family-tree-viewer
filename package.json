@@ -13,15 +13,25 @@
     }
   },
   "description": "Embeddable GEDCOM family tree viewer — interactive SVG with pan/zoom, expand/collapse, and edit panel",
-  "keywords": ["gedcom", "family-tree", "genealogy", "svg", "embeddable"],
+  "keywords": [
+    "gedcom",
+    "family-tree",
+    "genealogy",
+    "svg",
+    "embeddable"
+  ],
   "author": "Conor Maguire",
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
-    "url": "https://github.com/conormag/family-tree-viewer.git"
+    "url": "git+https://github.com/conormag/family-tree-viewer.git"
   },
   "homepage": "https://conormag.github.io/family-tree-viewer/",
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "vite --config vite.demo.config.ts",
     "build": "tsc -p tsconfig.build.json && vite build",
