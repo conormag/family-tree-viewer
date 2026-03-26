@@ -1,4 +1,4 @@
-import type { Individual, Family, Sex } from './types.js';
+import type { Individual, Family, Sex, EventRecord } from './types.js';
 import type { GedcomNode } from '../gedcom/types.js';
 import { extractYear } from '../utils/date.js';
 
@@ -137,6 +137,13 @@ export class Tree {
     this.emit('change');
   }
 
+  updateFamily(id: string, data: Partial<Pick<Family, 'marriage'>>): void {
+    const fam = this.families.get(id);
+    if (!fam) return;
+    Object.assign(fam, data);
+    this.emit('change');
+  }
+
   removeIndividual(id: string): void {
     const ind = this.individuals.get(id);
     if (!ind) return;
@@ -245,6 +252,29 @@ export function buildTree(nodes: GedcomNode[]): Tree {
         .filter(c => c.tag === 'NOTE')
         .map(c => c.value);
 
+      // Other life events (skip structural and already-handled tags)
+      const SKIP_INDI_TAGS = new Set([
+        'NAME', 'SEX', 'BIRT', 'DEAT', 'NOTE', 'FAMS', 'FAMC',
+        'SOUR', 'CHAN', 'OBJE', 'ALIA', 'ASSO', 'SUBM', 'REFN', 'RIN',
+      ]);
+      const KNOWN_EVENT_TAGS = new Set([
+        'ADOP', 'BAPM', 'BARM', 'BASM', 'BLES', 'BURI', 'CENS', 'CHR', 'CHRA',
+        'CONF', 'CREM', 'EMIG', 'EVEN', 'FCOM', 'GRAD', 'IMMI', 'NATU',
+        'OCCU', 'ORDN', 'PROB', 'RELI', 'RESI', 'RETI', 'TITL', 'WILL',
+      ]);
+      const events: EventRecord[] = [];
+      for (const child of node.children) {
+        if (SKIP_INDI_TAGS.has(child.tag) || child.tag.startsWith('_')) continue;
+        if (!KNOWN_EVENT_TAGS.has(child.tag)) continue;
+        const date = getChildValue(child, 'DATE');
+        const place = getChildValue(child, 'PLAC');
+        events.push({
+          type: child.tag,
+          ...(date !== undefined ? { date, year: extractYear(date) } : {}),
+          ...(place !== undefined ? { place } : {}),
+        });
+      }
+
       // FAMS and FAMC — will be set in second pass via FAM records
       // But also read them from INDI record for cross-linking
       const familiesAsSpouse = node.children
@@ -257,7 +287,7 @@ export function buildTree(nodes: GedcomNode[]): Tree {
         givenName,
         surname,
         sex,
-        events: [],
+        events,
         notes,
         familiesAsSpouse,
         ...(birth !== undefined ? { birth } : {}),
