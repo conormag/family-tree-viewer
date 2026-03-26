@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-03-26
+
+### Added
+- Life events parsed from GEDCOM and displayed in the side panel view (`ADOP`, `BAPM`, `BARM`, `BASM`, `BLES`, `BURI`, `CENS`, `CHR`, `CHRA`, `CONF`, `CREM`, `EMIG`, `EVEN`, `FCOM`, `GRAD`, `IMMI`, `NATU`, `OCCU`, `ORDN`, `PROB`, `RELI`, `RESI`, `RETI`, `TITL`, `WILL`)
+- Life events editor in the edit panel — add, remove, and edit events with type dropdown, date, and place fields
+- Parents section in the side panel view
+- Marriage date and place shown in the marriages section (view) and editable (edit)
+- Photo URL field in the edit panel — updates the avatar circle and panel header image
+- `updateFamily()` on `Tree` and `EditEngine` for persisting marriage edits
+- Section headers in the edit panel grouping Birth & Death / Life Events / Marriages / Notes
+
+### Changed
+- Side panel inline styles replaced with proper `ftv-` CSS classes throughout
+
 ## [1.2.0] - 2026-03-26
 
 ### Added

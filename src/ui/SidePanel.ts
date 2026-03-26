@@ -1,9 +1,21 @@
-import type { Individual } from '../model/types.js';
+import type { Individual, EventRecord } from '../model/types.js';
 import type { Tree } from '../model/Tree.js';
 import type { EditEngine } from '../edit/EditEngine.js';
 import { extractYear } from '../utils/date.js';
 
 type PanelState = 'closed' | 'viewing' | 'editing';
+
+const EVENT_LABELS: Record<string, string> = {
+  ADOP: 'Adoption',   BAPM: 'Baptism',       BARM: 'Bar Mitzvah',
+  BASM: 'Bas Mitzvah', BLES: 'Blessing',     BURI: 'Burial',
+  CENS: 'Census',     CHR: 'Christening',    CHRA: 'Adult Christening',
+  CONF: 'Confirmation', CREM: 'Cremation',   EMIG: 'Emigration',
+  EVEN: 'Event',      FCOM: 'First Communion', GRAD: 'Graduation',
+  IMMI: 'Immigration', NATU: 'Naturalization', OCCU: 'Occupation',
+  ORDN: 'Ordination', PROB: 'Probate',       RELI: 'Religion',
+  RESI: 'Residence',  RETI: 'Retirement',    TITL: 'Title',
+  WILL: 'Will',
+};
 
 export class SidePanel {
   private el: HTMLDivElement;
@@ -46,18 +58,27 @@ export class SidePanel {
     const id = this.currentId;
     if (!id) return;
     const ind = this.tree.getIndividual(id);
-    if (!ind) {
-      this.close();
-      return;
-    }
+    if (!ind) { this.close(); return; }
 
     const fullName = [ind.givenName, ind.surname].filter(Boolean).join(' ') || 'Unknown';
-    const spouses = this.tree.getSpouses(id);
+    const parents = this.tree.getParents(id);
     const children = this.tree.getChildren(id);
+
+    // Build marriages with family records
+    const marriages = ind.familiesAsSpouse.map(famId => {
+      const fam = this.tree.getFamily(famId);
+      if (!fam) return null;
+      const spouseId = fam.husbandId === id ? fam.wifeId : fam.husbandId;
+      const spouse = spouseId ? this.tree.getIndividual(spouseId) : undefined;
+      return { famId, fam, spouse };
+    }).filter((m): m is NonNullable<typeof m> => m !== null);
 
     this.el.innerHTML = `
       <div class="ftv-panel__header">
-        <h2 class="ftv-panel__name">${escHtml(fullName)}</h2>
+        <div class="ftv-panel__header-main">
+          ${ind.photoUrl ? `<img class="ftv-panel__photo" src="${escAttr(ind.photoUrl)}" alt="">` : ''}
+          <h2 class="ftv-panel__name">${escHtml(fullName)}</h2>
+        </div>
         <button class="ftv-panel__close" aria-label="Close">&times;</button>
       </div>
       <div class="ftv-panel__body">
@@ -72,12 +93,36 @@ export class SidePanel {
             <dd class="ftv-panel__dd">${escHtml(formatSex(ind.sex))}</dd>
           </dl>
         </div>
-        ${spouses.length > 0 ? `
+        ${parents.length > 0 ? `
+        <div class="ftv-panel__section">
+          <p class="ftv-panel__section-title">Parents</p>
+          ${parents.map(p => {
+            const pName = [p.givenName, p.surname].filter(Boolean).join(' ') || 'Unknown';
+            return `<div class="ftv-panel__person-link">${escHtml(pName)}</div>`;
+          }).join('')}
+        </div>` : ''}
+        ${ind.events.length > 0 ? `
+        <div class="ftv-panel__section">
+          <p class="ftv-panel__section-title">Life Events</p>
+          <dl class="ftv-panel__dl">
+            ${ind.events.map(ev => `
+              <dt class="ftv-panel__dt">${escHtml(EVENT_LABELS[ev.type] ?? ev.type)}</dt>
+              <dd class="ftv-panel__dd">${escHtml(formatEvent(ev))}</dd>
+            `).join('')}
+          </dl>
+        </div>` : ''}
+        ${marriages.length > 0 ? `
         <div class="ftv-panel__section">
           <p class="ftv-panel__section-title">Marriages</p>
-          ${spouses.map(s => {
-            const sName = [s.givenName, s.surname].filter(Boolean).join(' ') || 'Unknown';
-            return `<div style="font-size:13px;margin-bottom:4px;">${escHtml(sName)}</div>`;
+          ${marriages.map(({ fam, spouse }) => {
+            const sName = spouse
+              ? [spouse.givenName, spouse.surname].filter(Boolean).join(' ') || 'Unknown'
+              : 'Unknown';
+            const marriageDetail = fam.marriage ? formatEvent(fam.marriage) : '';
+            return `
+              <div class="ftv-panel__person-link">${escHtml(sName)}</div>
+              ${marriageDetail ? `<div class="ftv-panel__sub-detail">${escHtml(marriageDetail)}</div>` : ''}
+            `;
           }).join('')}
         </div>` : ''}
         ${children.length > 0 ? `
@@ -85,13 +130,13 @@ export class SidePanel {
           <p class="ftv-panel__section-title">Children</p>
           ${children.map(c => {
             const cName = [c.givenName, c.surname].filter(Boolean).join(' ') || 'Unknown';
-            return `<div style="font-size:13px;margin-bottom:4px;">${escHtml(cName)}</div>`;
+            return `<div class="ftv-panel__person-link">${escHtml(cName)}</div>`;
           }).join('')}
         </div>` : ''}
         ${ind.notes.length > 0 ? `
         <div class="ftv-panel__section">
           <p class="ftv-panel__section-title">Notes</p>
-          ${ind.notes.map(n => `<p style="font-size:13px;margin:0 0 4px;">${escHtml(n)}</p>`).join('')}
+          ${ind.notes.map(n => `<p class="ftv-panel__note">${escHtml(n)}</p>`).join('')}
         </div>` : ''}
         ${!this.readonly ? `
         <div class="ftv-panel__actions">
@@ -131,9 +176,20 @@ export class SidePanel {
     const ind = this.tree.getIndividual(id);
     if (!ind) return;
 
+    // Build marriages list
+    const marriages = ind.familiesAsSpouse.map(famId => {
+      const fam = this.tree.getFamily(famId);
+      if (!fam) return null;
+      const spouseId = fam.husbandId === id ? fam.wifeId : fam.husbandId;
+      const spouse = spouseId ? this.tree.getIndividual(spouseId) : undefined;
+      return { famId, fam, spouse };
+    }).filter((m): m is NonNullable<typeof m> => m !== null);
+
     this.el.innerHTML = `
       <div class="ftv-panel__header">
-        <h2 class="ftv-panel__name">Edit Person</h2>
+        <div class="ftv-panel__header-main">
+          <h2 class="ftv-panel__name">Edit Person</h2>
+        </div>
         <button class="ftv-panel__close" aria-label="Close">&times;</button>
       </div>
       <div class="ftv-panel__body">
@@ -155,6 +211,11 @@ export class SidePanel {
             </select>
           </div>
           <div class="ftv-form__row">
+            <label class="ftv-form__label" for="ftv-photo">Photo URL</label>
+            <input class="ftv-form__input" id="ftv-photo" name="photoUrl" type="text" placeholder="https://…" value="${escAttr(ind.photoUrl ?? '')}">
+          </div>
+          <div class="ftv-form__section-header">Birth &amp; Death</div>
+          <div class="ftv-form__row">
             <label class="ftv-form__label" for="ftv-bdate">Birth date</label>
             <input class="ftv-form__input" id="ftv-bdate" name="birthDate" type="text" placeholder="e.g. 1 JAN 1850 or ABT 1850" value="${escAttr(ind.birth?.date ?? '')}">
           </div>
@@ -167,11 +228,33 @@ export class SidePanel {
             <input class="ftv-form__input" id="ftv-ddate" name="deathDate" type="text" placeholder="e.g. 15 MAR 1920 or BEF 1930" value="${escAttr(ind.death?.date ?? '')}">
           </div>
           <div class="ftv-form__row">
-            <label class="ftv-form__label" for="ftv-dplace">Death Place</label>
+            <label class="ftv-form__label" for="ftv-dplace">Death place</label>
             <input class="ftv-form__input" id="ftv-dplace" name="deathPlace" type="text" value="${escAttr(ind.death?.place ?? '')}">
           </div>
+          <div class="ftv-form__section-header">Life Events</div>
+          <div id="ftv-events-container"></div>
+          <button type="button" class="ftv-btn" id="ftv-add-event">+ Add Event</button>
+          ${marriages.length > 0 ? `
+          <div class="ftv-form__section-header">Marriages</div>
+          ${marriages.map(({ famId, fam, spouse }) => {
+            const sName = spouse
+              ? [spouse.givenName, spouse.surname].filter(Boolean).join(' ') || 'Unknown'
+              : 'Unknown';
+            return `
+            <div class="ftv-form__subsection" data-fam-id="${escAttr(famId)}">
+              <div class="ftv-form__subsection-title">${escHtml(sName)}</div>
+              <div class="ftv-form__row">
+                <label class="ftv-form__label">Marriage date</label>
+                <input class="ftv-form__input ftv-marr-date" type="text" placeholder="e.g. 15 JUN 1880" value="${escAttr(fam.marriage?.date ?? '')}">
+              </div>
+              <div class="ftv-form__row">
+                <label class="ftv-form__label">Marriage place</label>
+                <input class="ftv-form__input ftv-marr-place" type="text" value="${escAttr(fam.marriage?.place ?? '')}">
+              </div>
+            </div>`;
+          }).join('')}` : ''}
+          <div class="ftv-form__section-header">Notes</div>
           <div class="ftv-form__row">
-            <label class="ftv-form__label" for="ftv-notes">Notes</label>
             <textarea class="ftv-form__textarea" id="ftv-notes" name="notes">${escHtml(ind.notes.join('\n'))}</textarea>
           </div>
           <div class="ftv-form__actions">
@@ -188,6 +271,18 @@ export class SidePanel {
       this.renderView();
     });
 
+    // Render initial event rows
+    const eventsContainer = this.el.querySelector('#ftv-events-container') as HTMLElement;
+    renderEventRows(eventsContainer, [...ind.events]);
+
+    // Add event button
+    this.el.querySelector('#ftv-add-event')?.addEventListener('click', () => {
+      const current = collectEventsFromContainer(eventsContainer);
+      current.push({ type: 'EVEN' });
+      renderEventRows(eventsContainer, current);
+    });
+
+    // Form submit
     this.el.querySelector('#ftv-edit-form')?.addEventListener('submit', (e) => {
       e.preventDefault();
       const form = e.target as HTMLFormElement;
@@ -196,12 +291,14 @@ export class SidePanel {
       const givenName = String(formData.get('givenName') ?? '').trim();
       const surname = String(formData.get('surname') ?? '').trim();
       const sex = String(formData.get('sex') ?? 'U') as Individual['sex'];
+      const photoUrl = String(formData.get('photoUrl') ?? '').trim() || undefined;
       const birthDate = String(formData.get('birthDate') ?? '').trim();
       const birthPlace = String(formData.get('birthPlace') ?? '').trim();
       const deathDate = String(formData.get('deathDate') ?? '').trim();
       const deathPlace = String(formData.get('deathPlace') ?? '').trim();
       const notesRaw = String(formData.get('notes') ?? '').trim();
       const notes = notesRaw ? notesRaw.split('\n').filter(Boolean) : [];
+      const events = collectEventsFromContainer(eventsContainer);
 
       const birth: Individual['birth'] = (birthDate || birthPlace) ? {
         type: 'BIRT',
@@ -216,12 +313,20 @@ export class SidePanel {
       } : undefined;
 
       this.editEngine.updateIndividual(id, {
-        givenName,
-        surname,
-        sex,
-        notes,
-        birth,
-        death,
+        givenName, surname, sex, notes, birth, death, events, photoUrl,
+      });
+
+      // Save marriage edits per family
+      form.querySelectorAll('[data-fam-id]').forEach(sub => {
+        const famId = (sub as HTMLElement).dataset.famId!;
+        const marrDate = (sub.querySelector('.ftv-marr-date') as HTMLInputElement).value.trim();
+        const marrPlace = (sub.querySelector('.ftv-marr-place') as HTMLInputElement).value.trim();
+        const marriage: Individual['birth'] = (marrDate || marrPlace) ? {
+          type: 'MARR',
+          ...(marrDate ? { date: marrDate, year: extractYear(marrDate) } : {}),
+          ...(marrPlace ? { place: marrPlace } : {}),
+        } : undefined;
+        this.editEngine.updateFamily(famId, { marriage });
       });
 
       this.state = 'viewing';
@@ -232,6 +337,50 @@ export class SidePanel {
   destroy(): void {
     this.el.remove();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Event row helpers (module-level so they can be called recursively)
+// ---------------------------------------------------------------------------
+
+function renderEventRows(container: HTMLElement, events: EventRecord[]): void {
+  container.innerHTML = events.map((ev, i) => `
+    <div class="ftv-event-row" data-idx="${i}">
+      <div class="ftv-event-row__top">
+        <select class="ftv-form__select ftv-event-type">
+          ${Object.entries(EVENT_LABELS).map(([k, v]) =>
+            `<option value="${k}"${ev.type === k ? ' selected' : ''}>${escHtml(v)}</option>`
+          ).join('')}
+        </select>
+        <button type="button" class="ftv-btn ftv-btn--danger ftv-event-remove">&times;</button>
+      </div>
+      <div class="ftv-event-row__bottom">
+        <input class="ftv-form__input ftv-event-date" type="text" placeholder="Date" value="${escAttr(ev.date ?? '')}">
+        <input class="ftv-form__input ftv-event-place" type="text" placeholder="Place" value="${escAttr(ev.place ?? '')}">
+      </div>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('.ftv-event-remove').forEach((btn, i) => {
+    btn.addEventListener('click', () => {
+      const current = collectEventsFromContainer(container);
+      current.splice(i, 1);
+      renderEventRows(container, current);
+    });
+  });
+}
+
+function collectEventsFromContainer(container: HTMLElement): EventRecord[] {
+  return Array.from(container.querySelectorAll('.ftv-event-row')).map(row => {
+    const type = (row.querySelector('.ftv-event-type') as HTMLSelectElement).value;
+    const date = (row.querySelector('.ftv-event-date') as HTMLInputElement).value.trim();
+    const place = (row.querySelector('.ftv-event-place') as HTMLInputElement).value.trim();
+    return {
+      type,
+      ...(date ? { date, year: extractYear(date) } : {}),
+      ...(place ? { place } : {}),
+    } as EventRecord;
+  });
 }
 
 function escHtml(s: string): string {

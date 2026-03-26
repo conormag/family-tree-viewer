@@ -1,5 +1,5 @@
 import type { Tree } from '../model/Tree.js';
-import type { Individual } from '../model/types.js';
+import type { Individual, Family } from '../model/types.js';
 import type { EventBus } from '../interaction/EventBus.js';
 
 export class EditEngine {
@@ -7,6 +7,11 @@ export class EditEngine {
 
   updateIndividual(id: string, data: Partial<Omit<Individual, 'id'>>): void {
     this.tree.updateIndividual(id, data);
+    this.bus.emit('tree:change', { tree: this.tree });
+  }
+
+  updateFamily(id: string, data: Partial<Pick<Family, 'marriage'>>): void {
+    this.tree.updateFamily(id, data);
     this.bus.emit('tree:change', { tree: this.tree });
   }
 
